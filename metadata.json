@@ -1,0 +1,6 @@
+{
+  "name": "x8D Hybrid Omni Diffusion NCM Lab",
+  "description": "Developer research report, x8D-Omni-Diffusion repository audit, spatial encoding synthesis, and 50M GR00T training blueprint.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

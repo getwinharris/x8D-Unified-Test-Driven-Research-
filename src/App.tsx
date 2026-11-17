@@ -1,0 +1,77 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+import { useRef, useState } from 'react';
+import { TopBar } from './components/TopBar';
+import { ExecutiveSummarySection } from './components/ExecutiveSummarySection';
+import { SystemDualSection } from './components/SystemDualSection';
+import { HfTestTrainSection } from './components/HfTestTrainSection';
+import { UnifiedArenaSection } from './components/UnifiedArenaSection';
+import { RepoAuditSection } from './components/RepoAuditSection';
+import { SubBitFrontierSection } from './components/SubBitFrontierSection';
+import { SpatialNcmSection } from './components/SpatialNcmSection';
+import { FootprintLabSection } from './components/FootprintLabSection';
+import { MemoryAgentSection } from './components/MemoryAgentSection';
+import { TrainingPlanSection } from './components/TrainingPlanSection';
+import { ResearchAdvisorPanel } from './components/ResearchAdvisorPanel';
+import { FootprintSimulationInput } from './lib/architectureMath';
+
+export default function App() {
+  const advisorInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const [syncedHfPayload, setSyncedHfPayload] = useState<string | null>(null);
+  const [syncedHfLabel, setSyncedHfLabel] = useState<string | null>(null);
+
+  const [simConfig, setSimConfig] = useState<FootprintSimulationInput>({
+    scaleId: 'ncm-50m',
+    quantId: 'x8d-subbyte-0008',
+    executionMode: 'raw-x8d-direct',
+    contextBytes: 16384,
+    activeLayerSpanRatio: 0.15,
+    distributedNodes: 4,
+    ncmCoarseBypassRate: 0.65,
+  });
+
+  const handleFocusAdvisor = () => {
+    const el = document.getElementById('research-advisor');
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+    setTimeout(() => {
+      advisorInputRef.current?.focus();
+    }, 300);
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col">
+      <TopBar onFocusAdvisor={handleFocusAdvisor} />
+
+      <main className="flex-1">
+        <ExecutiveSummarySection />
+        <SystemDualSection externalPayload={syncedHfPayload} externalLabel={syncedHfLabel} />
+        <HfTestTrainSection
+          onSendPayloadToLoop={(payload, label) => {
+            setSyncedHfPayload(payload);
+            setSyncedHfLabel(label);
+          }}
+        />
+        <UnifiedArenaSection />
+        <RepoAuditSection />
+        <SubBitFrontierSection />
+        <SpatialNcmSection />
+        <FootprintLabSection config={simConfig} onChange={setSimConfig} />
+        <MemoryAgentSection />
+        <TrainingPlanSection />
+        <ResearchAdvisorPanel config={simConfig} inputRef={advisorInputRef} />
+      </main>
+
+      <footer className="border-t border-slate-200 bg-white">
+        <div className="mx-auto max-w-[1360px] px-6 py-5 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-slate-500">
+          <span>x8D Unified Omni Diffusion–NCM Hybrid Workbench</span>
+          <span className="font-mono">0.000–0.255 Native Space · System 1 + System 2 · Live HF Integration</span>
+        </div>
+      </footer>
+    </div>
+  );
+}
