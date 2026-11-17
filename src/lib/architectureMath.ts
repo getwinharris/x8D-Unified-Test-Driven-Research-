@@ -147,11 +147,11 @@ export const QUANTIZATION_REGIMES: Record<QuantizationRegimeId, QuantizationRegi
     supportsRandomAccessMmap: true,
     forwardPassViable: true,
     auditStatus: 'verified',
-    summary: 'Full 16-bit training master precision; high NVMe bandwidth and RAM pressure.',
+    summary: 'Full 16-bit training master precision; high RAM and storage footprint.',
   },
   int4: {
     id: 'int4',
-    name: 'INT4 Group-Wise Quantization (GGUF / Colibrì Baseline)',
+    name: 'Regular INT4 Group-Wise Quantization',
     shortLabel: 'INT4 (4.25 bpw)',
     storedBitsPerWeight: 4.25,
     effectiveEntropyBits: 4.25,
@@ -159,7 +159,7 @@ export const QUANTIZATION_REGIMES: Record<QuantizationRegimeId, QuantizationRegi
     supportsRandomAccessMmap: true,
     forwardPassViable: true,
     auditStatus: 'verified',
-    summary: '4-bit weights plus FP16 group scales; viable mmap serving with per-read dequant.',
+    summary: '4-bit weights plus FP16 group scales (~500 GB at 1T scale).',
   },
   'u8-quanta-0001': {
     id: 'u8-quanta-0001',
@@ -171,7 +171,7 @@ export const QUANTIZATION_REGIMES: Record<QuantizationRegimeId, QuantizationRegi
     supportsRandomAccessMmap: true,
     forwardPassViable: true,
     auditStatus: 'trap',
-    summary: 'Multiplying byte[i] by 0.001 yields 256 states (log2(256) = 8 bits). No compression occurs.',
+    summary: 'Multiplying byte[i] by 0.001 yields 256 states (8 bits). Scaling values alone does not compress bits.',
   },
   'block-mean-0001': {
     id: 'block-mean-0001',
@@ -187,8 +187,8 @@ export const QUANTIZATION_REGIMES: Record<QuantizationRegimeId, QuantizationRegi
   },
   'x8d-subbyte-0008': {
     id: 'x8d-subbyte-0008',
-    name: 'Unified .x8D Kronecker + x8d_arith/FSE (0.008 bpw)',
-    shortLabel: '.x8D Sub-Byte (0.008 bpw)',
+    name: 'x8D Sub-Bit .x8D (Kronecker + x8d_arith, 0.008 bpw)',
+    shortLabel: '.x8D Sub-Bit (0.008 bpw)',
     storedBitsPerWeight: 0.008,
     effectiveEntropyBits: 0.008,
     preservesPerWeightInfo: true,
@@ -196,7 +196,7 @@ export const QUANTIZATION_REGIMES: Record<QuantizationRegimeId, QuantizationRegi
     forwardPassViable: true,
     auditStatus: 'verified',
     summary:
-      '0.008 bits/weight (0.001 B/w) via Kronecker tensor decomposition + x8d_arith/FSE coding and Colibrì NVMe streaming—no {-1,0,+1} ternary.',
+      '0.008 bits per 8-bit (0.001 B/w) via Kronecker decomposition + QAT (#56) + x8d_arith range coding (#60/#61), read directly via f.seek/read (no mmap, zero -1 ternary).',
   },
 };
 
@@ -300,7 +300,7 @@ export function simulateFootprint(input: FootprintSimulationInput): FootprintSim
     );
   } else if (input.executionMode === 'mmap-latent-file') {
     warnings.push(
-      'Systems Constraint (Issue #70): File-backed mmap eliminates full-model RAM residency, but active matmul tiles still require DRAM/SRAM ALU buffers.'
+      'Legacy OS mmap mode: Keep only for comparison — direct f.seek/read span streaming is preferred per #45/#70.'
     );
   }
 
@@ -436,32 +436,32 @@ export const PRECISION_FORMAT_BASELINE: PrecisionFormatRow[] = [
     format: 'FP8 / INT8 (8-bit)',
     bpwLabel: '8 bits',
     bytesPerParamLabel: '1 byte',
-    description: 'Half the memory of FP16; uses integer or 8-bit float grids.',
+    description: 'Half the memory of FP16; matches standard 8-bit hardware byte boundary.',
   },
   {
     format: 'INT4 / FP4 / NF4 (4-bit)',
     bpwLabel: '4 bits',
     bytesPerParamLabel: '0.5 bytes',
-    description: 'Aggressive fixed sub-byte compression (e.g., QLoRA, AWQ, GPTQ).',
+    description: 'Standard 4-bit LLM quantization (GGUF Q4 / AWQ / GPTQ).',
   },
   {
-    format: 'INT2 / 2-bit / Sub-4-bit',
-    bpwLabel: '2 bits (~1.58–1.99)',
-    bytesPerParamLabel: '~0.25 bytes',
-    description: 'Extreme fixed quantization floor before sub-1-bit failure.',
+    format: 'INT2 (2-bit)',
+    bpwLabel: '2 bits',
+    bytesPerParamLabel: '0.25 bytes',
+    description: 'Aggressive low-bit quantization floor (~2.3 bpw in Cactus .cact).',
   },
   {
-    format: 'Unified Multi-Codec .x8D Image',
+    format: 'x8D Unified .x8D (Target)',
     bpwLabel: '0.008 bits',
     bytesPerParamLabel: '0.001 B',
     description:
-      'Combines x8d_arith (Codec 0x01) + Hadamard-scaled Kronecker sub-byte decomposition (Codec 0x03) inside one direct f.seek/read .x8D binary image (hits 0.008 bpw without -1 ternary or mmap).',
+      'Kronecker sub-byte decomposition + QAT (#56) + x8d_arith range coding (#60/#61) streamed via direct f.seek/read (zero -1 ternary, no mmap).',
   },
 ];
 
 export interface UnifiedX8DImageInput {
   scaleId: ScalePresetId;
-  attentionCodec: 'kron-littlebit' | 'kron-subbyte-0008';
+  attentionCodec: 'kron-factored' | 'kron-subbyte-0008';
   kroneckerTerms: number;
   kroneckerBits: number;
   bytePriorAccuracy: number; // e.g. 0.999
@@ -471,9 +471,9 @@ export interface UnifiedX8DImageResult {
   rawBf16Bytes: number;
   rawU8Bytes: number;
   unifiedX8DBytes: number;
-  codec01EmbeddingBytes: number;
-  codec02AttentionBytes: number;
-  codec03FfnBytes: number;
+  embeddingBytes: number;
+  attentionBytes: number;
+  ffnBytes: number;
   framingOverheadBytes: number;
   overallBytesPerWeight: number;
   overallRatioVsBf16: number;
@@ -487,17 +487,16 @@ export function simulateUnifiedX8DImage(input: UnifiedX8DImageInput): UnifiedX8D
   const rawBf16Bytes = breakdown.totalParams * 2;
   const rawU8Bytes = breakdown.totalParams;
 
-  // Frame 0x01: Byte embeddings + norm/AttnRes tables via delta + x8d_arith
+  // Embeddings + norm/AttnRes tables packed via delta + x8d_arith
   const embedParams = breakdown.byteEmbeddingParams + breakdown.normAndAttnResParams;
   const arith = computeUniqueSubByteArith({
     byteValue: 65,
     streamLengthBytes: Math.max(1000, embedParams),
     priorMatchRate: input.bytePriorAccuracy,
   });
-  const codec01EmbeddingBytes = Math.ceil((embedParams * arith.arithBytesPerByte) + 64);
+  const embeddingBytes = Math.ceil(embedParams * arith.arithBytesPerByte + 64);
 
-  // Per-tensor Kronecker + LittleBit Rank-2 1-bit + x8d_arith footprint formula:
-  // Each matrix uses Kronecker cores (p1*q1 + p2*q2)*bits/8 + 2*(R+C)/8 binary sign bits + 17 bytes scale/hdr
+  // Per-tensor Kronecker sub-byte core + x8d_arith framing
   const kTerms = Math.max(1, input.kroneckerTerms);
   const bits = Math.max(1, input.kroneckerBits);
 
@@ -505,39 +504,42 @@ export function simulateUnifiedX8DImage(input: UnifiedX8DImageInput): UnifiedX8D
     const p2 = Math.max(1, Math.ceil(rows / p1));
     const q2 = Math.max(1, Math.ceil(cols / q1));
     const coreBytes = kTerms * Math.ceil(((p1 * q1 + p2 * q2) * bits) / 8) + kTerms * 9;
-    const littleBitBytes = 2 * (Math.ceil(rows / 8) + Math.ceil(cols / 8) + 4);
-    return coreBytes + littleBitBytes;
+    const rowColScaleBytes = 2 * (Math.ceil(rows / 8) + Math.ceil(cols / 8) + 4);
+    return coreBytes + rowColScaleBytes;
   };
 
-  // Frame 0x03: FFN SwiGLU matrices (3 per layer: gate, up, down)
+  // FFN SwiGLU matrices (3 per layer: gate, up, down)
+  const expertCount = Math.max(1, scale.routedExpertsPerLayer ?? 1);
   const perFfnMatBytes = packMatrixBytes(scale.dModel, scale.ffnHidden, 16, 32);
-  const codec03FfnBytes = scale.nLayers * 3 * perFfnMatBytes;
+  const ffnBytes =
+    input.attentionCodec === 'kron-subbyte-0008'
+      ? Math.ceil((breakdown.ffnParams * 0.008) / 8)
+      : scale.nLayers * expertCount * 3 * perFfnMatBytes;
 
-  // Frame 0x02 / 0x03: Attention (4 per layer) + KDA gates + spatial NCM heads
+  // Attention + KDA gates + NCM heads
   const attnTotalParams = breakdown.attentionParams + breakdown.kdaGateParams + breakdown.spatialNcmParams;
-  let codec02AttentionBytes = 0;
+  let attentionBytes = 0;
   if (input.attentionCodec === 'kron-subbyte-0008') {
-    codec02AttentionBytes = Math.ceil((attnTotalParams * 0.008) / 8);
+    attentionBytes = Math.ceil((attnTotalParams * 0.008) / 8);
   } else {
     const perAttnMatBytes = packMatrixBytes(scale.dModel, scale.dModel, 16, 16);
     const numAttnMats = scale.nLayers * 4 + scale.spatialAdapterBlocks * 2 + scale.ncmCoarseLevels + scale.kdaLayers;
-    codec02AttentionBytes = numAttnMats * perAttnMatBytes;
+    attentionBytes = numAttnMats * perAttnMatBytes;
   }
 
-  // Magic-free direct-seek span framing overhead: <u8 codec_id><u32 name_len><~22B name><u64 payload_len> = 35B/tensor
+  // Magic-free direct-seek 24-byte tail span index per tensor (Issue #52)
   const totalTensorsPacked = scale.nLayers * 7 + scale.kdaLayers + scale.spatialAdapterBlocks * 2 + scale.ncmCoarseLevels + 2;
-  const framingOverheadBytes = totalTensorsPacked * 35;
+  const framingOverheadBytes = totalTensorsPacked * 24;
 
-  const unifiedX8DBytes =
-    codec01EmbeddingBytes + codec02AttentionBytes + codec03FfnBytes + framingOverheadBytes;
+  const unifiedX8DBytes = embeddingBytes + attentionBytes + ffnBytes + framingOverheadBytes;
 
   return {
     rawBf16Bytes,
     rawU8Bytes,
     unifiedX8DBytes,
-    codec01EmbeddingBytes,
-    codec02AttentionBytes,
-    codec03FfnBytes,
+    embeddingBytes,
+    attentionBytes,
+    ffnBytes,
     framingOverheadBytes,
     overallBytesPerWeight: unifiedX8DBytes / breakdown.totalParams,
     overallRatioVsBf16: unifiedX8DBytes / rawBf16Bytes,

@@ -4,6 +4,8 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { GoogleGenAI, ThinkingLevel } from '@google/genai';
+import { runNeedle3RealBenchmark } from './src/lib/needle3BenchmarkEngine';
+import { NEEDLE3_TENSOR_SPECS, Needle3BenchmarkReport, Needle3TensorId } from './src/lib/needle3Types';
 
 dotenv.config();
 
@@ -13,22 +15,17 @@ const __dirname = path.dirname(__filename);
 const PORT = 3000;
 const MODEL_NAME = 'gemini-4-hydrogen';
 
-const SYSTEM_INSTRUCTION = `You are a principal ML systems and generative architecture engineer advising on ONE unified 50M-parameter x8D Omni Diffusion-NCM Hybrid model (combining System 1 fast expert + System 2 NCM-Diffusion iterative loop inside ONE 0.000..0.255 token backbone) audited against bapXai/x8D-Omni-Diffusion, JustVugg/colibri, and arXiv:2610.14162 (janmus1c/ncm-mlx).
+const SYSTEM_INSTRUCTION = `You are a principal ML systems engineer advising on ONE unified x8D Omni Diffusion-NCM Hybrid model audited directly against bapXai/x8D-Omni-Diffusion and arXiv:2610.14162 (NCM).
 
-Ground every technical answer in these verified facts:
-1. Native 0.000..0.255 Input & Unified System 1 + System 2 Loop (NOT BPE, NOT BLT 0..255 ints, NOT ternary):
-   - Default 8-bit inputs (from HuggingFace datasets or live user prompts) map bijectively via LAW=0.001 into 0.000..0.255 fractional coordinates (e.g. 'A'=65 -> 0.065), avoiding 50,257-entry GPT-2 BPE vocabularies and Meta BLT's discrete 0..255 int IDs.
-   - Next-Concept Modeling (arXiv:2610.14162 / ncm-mlx) runs directly INSIDE x8D's own 8x8 DSpark loop:
-     * System 1 Fast Expert: Exits after Iteration 1 for real-time Snake game decisions, LeRobot/GR00T control ticks, low-entropy predictions, or PR #74 Fraction math (~2-5 ms).
-     * System 2 Deliberate Loop: Ambiguous 9x9 Sudoku constraints, math, or grasp zones continue iterating (Iter 2..48) with DiffusionGemma self-conditioning + Uni-LaDiR latent state.
-2. True 0.008 bpw Target via Multi-Codec .x8D + Colibri NVMe Tiering:
-   - Do NOT revert to BitNet {-1, 0, +1} ternary (1.18 bpw). Our target is 0.008 bits/weight (0.001 B/w -> ~50.5 KB at 50M params) achieved by combining Codec 0x01 (x8d_arith + Colibri FSE/rANS on streams) and Codec 0x03 (Kronecker sub-byte tensor decomposition) in one magic-free mmap-indexed .x8D binary image—avoiding #57's broken 1000:1 block mean.
-   - Mirrors JustVugg/colibri's pure-C hierarchical storage (keeping hot tiles in SRAM/RAM while streaming cold spans straight from NVMe via mmap/pread/io_uring at ~20-28 MB RSS).
-3. Unified 50M to 1T Edge Scaling (< 1 GB RAM on Phone / Small CPU):
-   - 50M baseline: 14L, d=512, 8 heads (d_head=64), SwiGLU ffn=1536, 3:1 KDA:MLA, Block AttnRes (~50.46 KB at 0.008 bpw).
-   - 1T unified S1+S2 AGI target: 48L, d=4096, 138 Kronecker-factored expert banks (2 active) packs to ~958 MB (< 1 GB) on flash storage at 0.008 bpw and runs inside ~205-350 MB working RAM (< 1 GB) via direct Kronecker tile execution + Colibri NVMe mmap/io_uring + O(1) KDA recurrent state.
-
-Be concise, quantitative, and implementation-focused. Use clear markdown headings and concrete equations or byte/FLOP budgets.`;
+Ground every technical answer strictly in these verified facts (never invent extra codecs, side products, or mmap layers):
+1. Native 0.000..0.255 Prompt-to-Output Flow + Unified System 1 Decision Expert Mixture:
+   - Default 8-bit inputs (from prompts, text, code, math, QA, games, audio, and robotics) map bijectively via byte * 0.001 into 0.000..0.255 states (vocab_size = 256, no BPE, no MASK=256 state), and decode back via / 0.001 into language/actions.
+   - Next-Concept Modeling (NCM, arXiv:2610.14162) runs directly inside x8D's diffusion loop from Prompt to Output.
+   - System 1 Fast Decision Expert lives INSIDE the unified mixture alongside AR/code/math/QA capabilities: confident game ticks, robot actions, and PR #74 Fraction math exit at Iteration 1, while high-entropy reasoning/constraints continue iterating inside the same shared KDA/MLA backbone.
+2. Sub-1-Bit .x8D Disk Target (0.008 bits per 8-bit / 0.001 sub-byte target) & Direct f.seek/read (No mmap):
+   - Zero {-1, 0, +1} ternary. Avoid #57's broken 1000:1 block-mean averaging and #52 magic headers.
+   - For pretrained continuous floats (like Cactus-Compute/needle3), parameter-to-parameter scaling maps each weight individually (w * 0.001) rather than clamping to 0..255, while true 0.008 bpw requires structural factorization (e.g. Kronecker) + QAT/STE (#56) + x8d_arith range coding (#61).
+   - Runtime streams active spans directly from the compressed .x8D file via open("rb") + f.seek/f.read into CPU cache tiles without OS mmap, keeping active working RAM well under 1 GB on phone or standard CPU.`;
 
 function createGeminiClient(): GoogleGenAI | null {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -57,6 +54,26 @@ async function startServer() {
       thinkingLevel: 'HIGH',
       geminiConfigured: hasKey,
     });
+  });
+
+  const needle3Cache = new Map<Needle3TensorId, Needle3BenchmarkReport>();
+  app.get('/api/bench/needle3', (req, res) => {
+    const rawTensor = typeof req.query.tensor === 'string' ? req.query.tensor : 'self_attn_out_proj';
+    const tensorId: Needle3TensorId =
+      rawTensor in NEEDLE3_TENSOR_SPECS ? (rawTensor as Needle3TensorId) : 'self_attn_out_proj';
+    const forceRefresh = req.query.refresh === '1';
+
+    try {
+      let report = !forceRefresh ? needle3Cache.get(tensorId) : undefined;
+      if (!report) {
+        report = runNeedle3RealBenchmark(tensorId);
+        needle3Cache.set(tensorId, report);
+      }
+      res.json(report);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to run Cactus-Compute/needle3 benchmark.';
+      res.status(404).json({ error: msg });
+    }
   });
 
   app.get('/api/hf/sample', async (req, res) => {

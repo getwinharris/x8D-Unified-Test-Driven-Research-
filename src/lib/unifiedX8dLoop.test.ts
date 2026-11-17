@@ -14,7 +14,7 @@ test('x8D native quanta maps every raw byte 0..255 uniquely into 0.000..0.255', 
   assert.equal(toX8dQuantaString(255), '0.255');
 });
 
-test('Codec 0x01 delta+run-length verifies 100% bit-exact lossless roundtrip', () => {
+test('x8d_arith lossless delta+run-length verifies 100% bit-exact lossless roundtrip', () => {
   const sample = new TextEncoder().encode(
     'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA{"action":[0.065,0.128]}'
   );

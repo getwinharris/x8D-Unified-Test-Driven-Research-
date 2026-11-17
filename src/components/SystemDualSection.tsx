@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react';
+import { Globe, Loader2 } from 'lucide-react';
 import {
   ByteBlockAnalysis,
   InternalRepresentationId,
@@ -10,15 +11,14 @@ import {
   simulateUnifiedLoop,
 } from '../lib/unifiedX8dLoop';
 
-interface SystemDualSectionProps {
-  externalPayload?: string | null;
-  externalLabel?: string | null;
-}
+const HF_DATASETS = [
+  { id: 'lerobot/pusht', label: 'LeRobot PushT' },
+  { id: 'nvidia/PhysicalAI-Robotics-GR00T-X-Embodiment-Sim', label: 'GR00T Robotics' },
+  { id: 'openai/gsm8k', label: 'GSM8K Math' },
+  { id: 'roneneldan/TinyStories', label: 'TinyStories' },
+];
 
-export const SystemDualSection: React.FC<SystemDualSectionProps> = ({
-  externalPayload,
-  externalLabel,
-}) => {
+export const SystemDualSection: React.FC = () => {
   const [config, setConfig] = useState<UnifiedLoopConfig>({
     taskMode: 'game-reflex',
     representationMode: 'adaptive-entropy-chunks',
@@ -30,17 +30,10 @@ export const SystemDualSection: React.FC<SystemDualSectionProps> = ({
   const [payloadText, setPayloadText] = useState<string>(TASK_PRESET_SAMPLES['game-reflex'].sample);
   const [selectedBlockIdx, setSelectedBlockIdx] = useState<number>(0);
 
-  // Sync when user sends a live HF payload from the HF workbench
-  const [lastSyncedExternal, setLastSyncedExternal] = useState<string | null>(null);
-  if (externalPayload && externalPayload !== lastSyncedExternal) {
-    setLastSyncedExternal(externalPayload);
-    setPayloadText(externalPayload);
-    setConfig((prev) => ({
-      ...prev,
-      taskMode: 'omni-multimodal',
-    }));
-    setSelectedBlockIdx(0);
-  }
+  // Live HF stream state
+  const [hfDataset, setHfDataset] = useState<string>(HF_DATASETS[0].id);
+  const [hfLoading, setHfLoading] = useState<boolean>(false);
+  const [hfStatus, setHfStatus] = useState<string | null>(null);
 
   const sim = useMemo(() => simulateUnifiedLoop(payloadText, config), [payloadText, config]);
 
@@ -56,22 +49,46 @@ export const SystemDualSection: React.FC<SystemDualSectionProps> = ({
     }));
     setPayloadText(preset.sample);
     setSelectedBlockIdx(0);
+    setHfStatus(null);
+  };
+
+  const handleFetchHfSample = async () => {
+    setHfLoading(true);
+    setHfStatus(null);
+    try {
+      const resp = await fetch(`/api/hf/sample?dataset=${encodeURIComponent(hfDataset)}&row=0`);
+      const data = await resp.json();
+      if (!resp.ok) {
+        setHfStatus(data?.error || `HTTP ${resp.status}`);
+        return;
+      }
+      const text = typeof data.serializedText === 'string' ? data.serializedText : JSON.stringify(data.rawRecord);
+      setPayloadText(text);
+      setConfig((prev) => ({ ...prev, taskMode: 'omni-multimodal' }));
+      setSelectedBlockIdx(0);
+      setHfStatus(`Loaded ${hfDataset} (${text.length} bytes → 0.000..0.255)`);
+    } catch (err: unknown) {
+      setHfStatus(err instanceof Error ? err.message : 'Failed to fetch HF dataset row.');
+    } finally {
+      setHfLoading(false);
+    }
   };
 
   return (
     <section id="system-dual" className="mx-auto max-w-[1360px] px-6 py-12 border-b border-slate-200">
       <div className="max-w-3xl">
         <div className="text-xs font-mono uppercase tracking-wider text-slate-500">
-          01. Unified One-Model System 1 + System 2 Inside x8D Loop
+          01. Prompt-to-Output NCM &amp; System 1 Decision Expert Inside Mixture
         </div>
         <h2 className="mt-1.5 text-2xl font-bold tracking-tight text-slate-900">
-          NCM Inside x8D&apos;s Denoising Loop: Single 0.000–0.255 Backbone for Reflex &amp; Reasoning
+          Unified Mixture Architecture: Fast System 1 Expert + Deliberate System 2 NCM-Diffusion
         </h2>
         <p className="mt-2 text-sm text-slate-600 leading-relaxed">
-          Instead of splitting System 2 (slow VLM) and System 1 (separate DiT action model) like GR00T N1, our
-          architecture embeds Next-Concept Modeling (NCM) <strong className="font-semibold text-slate-900">directly inside x8D&apos;s denoising loop</strong>.
-          Every modality shares native <span className="font-mono text-slate-800">0.000–0.255</span> byte quanta while decoupling four separate concerns:
-          (1) 0..255 byte I/O, (2) experimental internal grouping (adaptive chunks, learned NCM, KDA state, or fixed 8×8 baseline), (3) sub-byte weight codecs, and (4) S1/S2 scheduling.
+          Next-Concept Modeling (NCM, <span className="font-mono text-slate-800">arXiv:2610.14162</span>) operates
+          directly from Prompt to Output inside x8D&apos;s loop. A dedicated{' '}
+          <strong className="font-semibold text-slate-900">System 1 decision expert lives inside the same mixture</strong>{' '}
+          alongside AR/code/math/QA so robotics ticks, game reflexes, and deterministic PR #74 math commit in 1 pass,
+          while hard reasoning refines iteratively.
         </p>
       </div>
 
@@ -79,43 +96,41 @@ export const SystemDualSection: React.FC<SystemDualSectionProps> = ({
       <div className="mt-6 bg-white border border-slate-200 rounded-lg p-5">
         <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-slate-200">
           <h3 className="text-sm font-semibold text-slate-900">
-            Single-Backbone Loop Execution Flow (0.000..0.255 Unified Token Space · No Mandatory 8×8 Grid)
+            Prompt-to-Output NCM Loop Flow (0.000..0.255 Unified Byte Stream · Adaptive or Concept Spans)
           </h3>
-          <span className="text-xs font-mono text-slate-500">
-            4 Decoupled Architectural Layers · Experimental Hypothesis
-          </span>
+          <span className="text-xs font-mono text-slate-500">Single Backbone · No Split Adapter Model</span>
         </div>
 
         <div className="mt-4 grid grid-cols-1 md:grid-cols-4 gap-3 text-xs">
           <div className="rounded border border-slate-200 bg-slate-50 p-3.5">
-            <div className="font-mono text-[11px] font-semibold text-blue-700">STAGE A · UNIFIED INPUT</div>
-            <div className="mt-1 font-semibold text-slate-900">Raw Bytes → 0.000..0.255</div>
+            <div className="font-mono text-[11px] font-semibold text-blue-700">1 · PROMPT INPUT (8-BIT)</div>
+            <div className="mt-1 font-semibold text-slate-900">0..255 → 0.000..0.255</div>
             <p className="mt-1 text-slate-600 leading-relaxed">
-              Text, game actions, audio PCM, and GR00T kinematics map identically (<span className="font-mono">65 → 0.065</span>) before entering candidate internal structures.
+              Prompt text, actions, and sensor structs convert via <span className="font-mono">byte × 0.001</span> into one shared byte space.
             </p>
           </div>
 
           <div className="rounded border border-slate-200 bg-slate-50 p-3.5">
-            <div className="font-mono text-[11px] font-semibold text-cyan-700">ITER 1 · NCM COARSE PASS</div>
-            <div className="mt-1 font-semibold text-slate-900">In-Loop Concept Blueprint</div>
+            <div className="font-mono text-[11px] font-semibold text-cyan-700">2 · NCM ITERATION 1</div>
+            <div className="mt-1 font-semibold text-slate-900">Coarse Prompt→Output Blueprint</div>
             <p className="mt-1 text-slate-600 leading-relaxed">
-              First pass inside x8D predicts hierarchical coarse structure across all 64-byte blocks and measures per-block normalized entropy <span className="font-mono">H_norm</span>.
+              First NCM pass inside x8D drafts global structure across spans and evaluates entropy <span className="font-mono">H_norm</span>.
             </p>
           </div>
 
           <div className="rounded border border-emerald-200 bg-emerald-50/50 p-3.5">
-            <div className="font-mono text-[11px] font-semibold text-emerald-800">BRANCH 1 · SYSTEM 1 EXPERT</div>
-            <div className="mt-1 font-semibold text-slate-900">1-Step Exit (~2–5 ms)</div>
+            <div className="font-mono text-[11px] font-semibold text-emerald-800">3 · SYSTEM 1 DECISION EXPERT</div>
+            <div className="mt-1 font-semibold text-slate-900">1-Step Exit Inside Mixture</div>
             <p className="mt-1 text-slate-700 leading-relaxed">
-              When <span className="font-mono">H_norm ≤ τ_S1</span> (game frames, quick reflex predictions, control ticks, or PR #74 Fraction math), block commits on Iter 1.
+              Low-entropy control ticks, Snake decisions, robotics frames, and PR #74 Fraction math exit immediately on Iter 1.
             </p>
           </div>
 
           <div className="rounded border border-blue-200 bg-blue-50/50 p-3.5">
-            <div className="font-mono text-[11px] font-semibold text-blue-800">BRANCH 2 · SYSTEM 2 LOOP</div>
-            <div className="mt-1 font-semibold text-slate-900">NCM + Diffusion Iter 2..T</div>
+            <div className="font-mono text-[11px] font-semibold text-blue-800">4 · SYSTEM 2 &amp; OUTPUT</div>
+            <div className="mt-1 font-semibold text-slate-900">Refine → UTF-8 / Action Decode</div>
             <p className="mt-1 text-slate-700 leading-relaxed">
-              High-entropy planning, math, or grasp-contact blocks loop inside x8D using self-conditioning carry + Uni-LaDiR latent state until stable.
+              High-entropy logic spans refine across Iter 2..T and decode via <span className="font-mono">q / 0.001</span> back to language or actions.
             </p>
           </div>
         </div>
@@ -125,9 +140,9 @@ export const SystemDualSection: React.FC<SystemDualSectionProps> = ({
       <div className="mt-6 bg-white border border-slate-200 rounded-lg overflow-hidden">
         <div className="px-5 py-3.5 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
           <h3 className="text-sm font-semibold text-slate-900">
-            System 1 vs. System 2 Models Comparison: Why One Unified x8D Loop Beats Split Dual-System Pipelines
+            Architectural Comparison: Unified x8D vs. Pure AR, Pure Diffusion &amp; Split Dual-System
           </h3>
-          <span className="text-xs font-mono text-slate-500">4 Architectural Paradigms</span>
+          <span className="text-xs font-mono text-slate-500">System 1 Inside Unified Mixture</span>
         </div>
 
         <div className="overflow-x-auto">
@@ -135,10 +150,10 @@ export const SystemDualSection: React.FC<SystemDualSectionProps> = ({
             <thead>
               <tr className="border-b border-slate-200 bg-slate-50 text-[11px] font-mono uppercase tracking-wider text-slate-500">
                 <th className="py-3 px-4">Paradigm &amp; Token Domain</th>
-                <th className="py-3 px-4">System 1 Role (Fast Reflex)</th>
+                <th className="py-3 px-4">System 1 Role (Fast Decision)</th>
                 <th className="py-3 px-4">System 2 Role (Deliberate Loop)</th>
-                <th className="py-3 px-4">Game / Control Latency</th>
-                <th className="py-3 px-4">Reasoning &amp; Footprint</th>
+                <th className="py-3 px-4">Control Latency</th>
+                <th className="py-3 px-4">Reasoning &amp; Storage</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200 text-xs">
@@ -148,9 +163,7 @@ export const SystemDualSection: React.FC<SystemDualSectionProps> = ({
                   className={row.isOurHybrid ? 'bg-blue-50/50 align-top' : 'hover:bg-slate-50/70 align-top'}
                 >
                   <td className="py-3.5 px-4 min-w-[230px]">
-                    <div className="font-semibold text-slate-900">
-                      {row.paradigm}
-                    </div>
+                    <div className="font-semibold text-slate-900">{row.paradigm}</div>
                     <div className="mt-1 text-[11px] text-slate-500">{row.examples}</div>
                     <div className="mt-1.5 font-mono text-[11px] text-blue-700">{row.tokenDomain}</div>
                   </td>
@@ -170,12 +183,12 @@ export const SystemDualSection: React.FC<SystemDualSectionProps> = ({
         </div>
       </div>
 
-      {/* Interactive Loop & Iteration Workbench */}
+      {/* Interactive Loop & Live HF Dataset Stream */}
       <div className="mt-6 grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        <div className="lg:col-span-5 bg-white border border-slate-200 rounded-lg p-5 space-y-5">
+        <div className="lg:col-span-5 min-w-0 bg-white border border-slate-200 rounded-lg p-5 space-y-5">
           <div>
             <div className="text-xs font-mono uppercase tracking-wider text-slate-500 mb-2">
-              Internal Representation Experiment (8×8 Is Optional Baseline Only)
+              Internal Span Grouping (8×8 Is Optional Baseline Only)
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
               {(Object.keys(REPRESENTATION_OPTIONS) as InternalRepresentationId[]).map((repId) => {
@@ -197,7 +210,7 @@ export const SystemDualSection: React.FC<SystemDualSectionProps> = ({
                     }`}
                   >
                     <div className="font-semibold truncate">{rep.label}</div>
-                    <div className="font-mono text-[10px] text-slate-500 mt-0.5">{rep.status}</div>
+                    <div className="font-mono text-[10px] text-slate-500 mt-0.5">{rep.tag}</div>
                   </button>
                 );
               })}
@@ -207,11 +220,11 @@ export const SystemDualSection: React.FC<SystemDualSectionProps> = ({
             </p>
           </div>
 
-          <div className="pt-2 border-t border-slate-200">
-            <div className="text-xs font-mono uppercase tracking-wider text-slate-500 mb-2">
-              Task Regime Preset
+          <div className="pt-3 border-t border-slate-200 space-y-2.5">
+            <div className="text-xs font-mono uppercase tracking-wider text-slate-500">
+              Load Preset or Live HuggingFace Dataset Row
             </div>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-1.5">
               {(Object.keys(TASK_PRESET_SAMPLES) as SystemTaskMode[]).map((mode) => {
                 const active = config.taskMode === mode;
                 return (
@@ -219,7 +232,7 @@ export const SystemDualSection: React.FC<SystemDualSectionProps> = ({
                     key={mode}
                     type="button"
                     onClick={() => handleSelectTaskPreset(mode)}
-                    className={`rounded border px-2.5 py-1.5 text-xs font-medium transition-colors cursor-pointer ${
+                    className={`rounded border px-2 py-1 text-[11px] font-medium transition-colors cursor-pointer ${
                       active
                         ? 'border-blue-600 bg-blue-50 text-blue-800'
                         : 'border-slate-200 bg-slate-50 text-slate-700 hover:border-slate-300'
@@ -230,17 +243,43 @@ export const SystemDualSection: React.FC<SystemDualSectionProps> = ({
                 );
               })}
             </div>
+
+            <div className="flex flex-col sm:flex-row sm:items-center gap-2 pt-1 min-w-0">
+              <select
+                aria-label="Live HuggingFace dataset selector"
+                data-testid="hf-dataset-select"
+                value={hfDataset}
+                onChange={(e) => setHfDataset(e.target.value)}
+                className="w-full min-w-0 sm:flex-1 rounded border border-slate-300 bg-white px-2.5 py-1.5 text-xs text-slate-900 focus:border-blue-600 focus:outline-none"
+              >
+                {HF_DATASETS.map((ds) => (
+                  <option key={ds.id} value={ds.id}>
+                    {ds.label} ({ds.id})
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                data-testid="fetch-hf-btn"
+                onClick={handleFetchHfSample}
+                disabled={hfLoading}
+                className="inline-flex items-center gap-1.5 rounded bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-800 disabled:opacity-60 cursor-pointer shrink-0"
+              >
+                {hfLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Globe className="w-3.5 h-3.5" />}
+                <span>{hfLoading ? 'Loading...' : 'Fetch Live HF'}</span>
+              </button>
+            </div>
+            {hfStatus && (
+              <div className="text-[11px] font-mono text-emerald-700" data-testid="hf-status">
+                {hfStatus}
+              </div>
+            )}
           </div>
 
           <div>
-            <div className="flex items-center justify-between mb-1.5">
-              <label htmlFor="unified-loop-payload" className="text-xs font-mono uppercase tracking-wider text-slate-500">
-                Multimodal Stream Payload (Any Language / Action / Code)
-              </label>
-              {lastSyncedExternal && externalLabel && payloadText === lastSyncedExternal && (
-                <span className="text-[11px] font-mono text-emerald-700">Synced: {externalLabel}</span>
-              )}
-            </div>
+            <label htmlFor="unified-loop-payload" className="block text-xs font-mono uppercase tracking-wider text-slate-500 mb-1.5">
+              Raw 8-Bit Payload (Mapped to 0.000..0.255)
+            </label>
             <textarea
               id="unified-loop-payload"
               rows={4}
@@ -256,7 +295,7 @@ export const SystemDualSection: React.FC<SystemDualSectionProps> = ({
           <div>
             <div className="flex items-center justify-between text-xs mb-1.5">
               <label htmlFor="s1-threshold-slider" className="font-mono uppercase tracking-wider text-slate-500">
-                System 1 Exit Entropy Threshold (τ_S1)
+                System 1 Exit Threshold (τ_S1)
               </label>
               <span className="font-mono font-semibold text-slate-900 tabular-nums">
                 {config.system1EntropyThreshold.toFixed(2)}
@@ -274,10 +313,6 @@ export const SystemDualSection: React.FC<SystemDualSectionProps> = ({
               }
               className="w-full accent-blue-600 cursor-pointer"
             />
-            <div className="flex justify-between text-[11px] font-mono text-slate-500 mt-0.5">
-              <span>0.15 (Strict System 2)</span>
-              <span>0.85 (Aggressive System 1)</span>
-            </div>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -328,8 +363,8 @@ export const SystemDualSection: React.FC<SystemDualSectionProps> = ({
           </div>
         </div>
 
-        {/* Right Telemetry + 8x8 Block Grid */}
-        <div className="lg:col-span-7 space-y-5">
+        {/* Right Telemetry + Block Routing Grid */}
+        <div className="lg:col-span-7 min-w-0 space-y-5">
           <div className="grid grid-cols-2 sm:grid-cols-4 border border-slate-200 bg-white rounded-lg divide-y sm:divide-y-0 sm:divide-x divide-slate-200">
             <div className="p-4">
               <div className="text-[11px] font-mono uppercase tracking-wider text-slate-500">System 1 Fast Exit</div>
@@ -337,7 +372,7 @@ export const SystemDualSection: React.FC<SystemDualSectionProps> = ({
                 {sim.system1Pct.toFixed(0)}%
               </div>
               <div className="mt-1 text-[11px] font-mono text-slate-600 tabular-nums">
-                {sim.system1Blocks}/{sim.totalBlocks} blocks @ 1 iter
+                {sim.system1Blocks}/{sim.totalBlocks} spans @ 1 iter
               </div>
             </div>
 
@@ -362,12 +397,12 @@ export const SystemDualSection: React.FC<SystemDualSectionProps> = ({
             </div>
 
             <div className="p-4">
-              <div className="text-[11px] font-mono uppercase tracking-wider text-slate-500">.x8D Codec 0x01</div>
+              <div className="text-[11px] font-mono uppercase tracking-wider text-slate-500">x8d_arith Frame</div>
               <div className="mt-1 text-2xl font-mono font-semibold text-slate-900 tabular-nums">
-                {sim.compressedBytesCodec01} B
+                {sim.compressedBytesArith} B
               </div>
               <div className="mt-1 text-[11px] font-mono text-emerald-700 tabular-nums">
-                {sim.losslessRoundtripVerified ? '● 100% Bit-Exact' : 'Mismatch'} ({sim.compressionRatio.toFixed(2)}×)
+                {sim.losslessRoundtripVerified ? '100% Bit-Exact' : 'Mismatch'} ({sim.compressionRatio.toFixed(2)}×)
               </div>
             </div>
           </div>
@@ -375,16 +410,16 @@ export const SystemDualSection: React.FC<SystemDualSectionProps> = ({
           <div className="bg-white border border-slate-200 rounded-lg p-5">
             <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-slate-200">
               <h3 className="text-sm font-semibold text-slate-900">
-                Live Latent Span Routing ({REPRESENTATION_OPTIONS[config.representationMode ?? 'adaptive-entropy-chunks'].label} · {sim.totalBytes}B → {sim.totalBlocks} spans)
+                Span Routing ({REPRESENTATION_OPTIONS[config.representationMode ?? 'adaptive-entropy-chunks'].label} · {sim.totalBytes}B → {sim.totalBlocks} spans)
               </h3>
               <div className="flex items-center gap-4 text-[11px] font-mono">
                 <span className="flex items-center gap-1.5 text-emerald-800">
                   <span className="inline-block w-2.5 h-2.5 rounded-sm bg-emerald-500" />
-                  System 1 (Iter 1 Exit)
+                  System 1 (Iter 1)
                 </span>
                 <span className="flex items-center gap-1.5 text-blue-800">
                   <span className="inline-block w-2.5 h-2.5 rounded-sm bg-blue-600" />
-                  System 2 (NCM+Diff Loop)
+                  System 2 (Iter 2..T)
                 </span>
               </div>
             </div>
@@ -430,7 +465,7 @@ export const SystemDualSection: React.FC<SystemDualSectionProps> = ({
               <div className="mt-4 rounded border border-slate-200 bg-slate-50 p-3.5 text-xs">
                 <div className="flex flex-wrap items-center justify-between gap-2 font-mono text-slate-700">
                   <span>
-                    <strong className="text-slate-900">Block #{activeBlock.blockIndex} Inspector</strong> ·{' '}
+                    <strong className="text-slate-900">Span #{activeBlock.blockIndex}</strong> ·{' '}
                     {activeBlock.routedSystem === 'system-1'
                       ? 'System 1 Fast Expert (Committed on NCM Iter 1)'
                       : `System 2 Iterative Loop (${activeBlock.iterationsUsed} Diffusion Steps)`}
@@ -440,7 +475,7 @@ export const SystemDualSection: React.FC<SystemDualSectionProps> = ({
                   </span>
                 </div>
                 <div className="mt-2 font-mono text-[11px] text-slate-600 break-all">
-                  Native Unified Tokens (0.000..0.255): [{activeBlock.sampleQuanta.join(', ')}]
+                  Native 0.000..0.255 I/O Quanta: [{activeBlock.sampleQuanta.join(', ')}]
                 </div>
               </div>
             )}

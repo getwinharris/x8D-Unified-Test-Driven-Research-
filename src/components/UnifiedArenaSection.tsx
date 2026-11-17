@@ -16,32 +16,25 @@ import {
 } from '../lib/x8dMiniModelEngine';
 
 export const UnifiedArenaSection: React.FC = () => {
-  // 1. Tokenization comparator state
   const [compareText, setCompareText] = useState<string>(
     "I've solved 9x9 Sudoku and steered Snake in 0.000..0.255 bytes!"
   );
   const encodingCmp = useMemo(() => compareInputEncodings(compareText), [compareText]);
 
-  // 2. Real SGD mini-model weights (defaults to untrained; user can train live)
   const [weights, setWeights] = useState<MiniX8dUnifiedWeights>(() => createUntrainedMiniWeights());
-
-  // 3. Sudoku Solver test state
   const [selectedSudokuId, setSelectedSudokuId] = useState<string>(SUDOKU_PRESETS[0].id);
   const [sudokuResult, setSudokuResult] = useState<SudokuSolveResult | null>(null);
   const activeSudokuPreset =
     SUDOKU_PRESETS.find((p) => p.id === selectedSudokuId) ?? SUDOKU_PRESETS[0];
 
-  // 4. Decision-by-decision Snake Game state
   const [snakeState, setSnakeState] = useState<SnakeGameState>(() => createInitialSnakeState(10));
   const [snakeAutoPlay, setSnakeAutoPlay] = useState<boolean>(false);
 
-  // 5. Question / Prompt Solving test state
   const [qaInput, setQaInput] = useState<string>(
     'What is GR00T and how does a 1T x8D model fit in 1GB RAM?'
   );
   const [qaResult, setQaResult] = useState<QaPromptTestResult | null>(null);
 
-  // Auto-play timer for Snake decision-by-decision ticks
   useEffect(() => {
     if (!snakeAutoPlay || !snakeState.alive) {
       if (snakeAutoPlay && !snakeState.alive) setSnakeAutoPlay(false);
@@ -56,7 +49,6 @@ export const UnifiedArenaSection: React.FC = () => {
   const handleTrainMiniModel = () => {
     const trained = trainMiniX8dModel(12);
     setWeights(trained);
-    // Immediately verify Sudoku & Q&A once trained
     setSudokuResult(solveSudokuUnified(activeSudokuPreset.puzzle81, trained));
     setQaResult(evaluateUnifiedPrompt(qaInput, trained));
   };
@@ -89,34 +81,33 @@ export const UnifiedArenaSection: React.FC = () => {
     <section id="unified-arena" className="mx-auto max-w-[1360px] px-6 py-12 border-b border-slate-200">
       <div className="max-w-3xl">
         <div className="text-xs font-mono uppercase tracking-wider text-slate-500">
-          03. Trainable Micro-Model &amp; Live Sudoku · Snake · Byte Input Arena
+          02. Byte Input Representation &amp; Train/Test Micro-Model (One Unified Mixture)
         </div>
         <h2 className="mt-1.5 text-2xl font-bold tracking-tight text-slate-900">
-          Raw 8-Bit Bytes → 0.000–0.255 Quanta (vs. BPE &amp; BLT) · Train &amp; Test One Model on Sudoku, Snake &amp; Q&amp;A
+          Default 8-Bit Input → 0.000–0.255 Space · Train &amp; Test One Model Across Sudoku, Snake &amp; Q&amp;A
         </h2>
         <p className="mt-2 text-sm text-slate-600 leading-relaxed">
-          Following <span className="font-mono text-slate-800">x8d_quanta.py</span>,{' '}
-          <span className="font-mono text-slate-800">Colibrì</span> tiered NVMe design, and{' '}
-          <span className="font-mono text-slate-800">NCM (arXiv:2610.14162 / ncm-mlx)</span>, default dataset and
-          prompt 8-bit bytes map straight to fractional <span className="font-mono text-slate-800">0.000–0.255</span> IDs
-          (rather than 50,257-entry GPT-2 BPE or BLT&apos;s <span className="font-mono text-slate-800">0..255</span> integers).
-          Train the miniature unified model below at the <span className="font-mono text-slate-800">0.008 bpw</span> sub-byte
-          target and test that same model live across Sudoku, decision-by-decision Snake, and Q&amp;A.
+          Inputs from prompts or datasets map directly (<span className="font-mono text-slate-800">byte × 0.001</span>)
+          into <span className="font-mono text-slate-800">0.000–0.255</span> instead of 50,257-entry GPT-2 BPE or
+          discrete BLT IDs. Train the unified micro-weights below and run that same model on{' '}
+          <strong className="font-semibold text-slate-900">System 2</strong> Sudoku,{' '}
+          <strong className="font-semibold text-slate-900">System 1</strong> decision-by-decision Snake, and{' '}
+          <strong className="font-semibold text-slate-900">Prompt Q&amp;A</strong> decoded back to UTF-8 text.
         </p>
       </div>
 
-      {/* 1. BPE vs Meta BLT (0..255) vs ncm-mlx vs x8D (0.000..0.255) Comparator */}
+      {/* Input Encoding Comparison */}
       <div className="mt-6 bg-white border border-slate-200 rounded-lg p-5 space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-slate-200">
           <h3 className="text-sm font-semibold text-slate-900">
-            Input Representation Comparison: TinyStories BPE vs. Meta BLT (0..255) vs. x8D (0.000–0.255)
+            Input Representation: TinyStories Byte-BPE vs. Meta BLT (0..255) vs. ncm-mlx vs. x8D (0.000–0.255)
           </h3>
           <span className="text-xs font-mono text-slate-500">Default 8-bit Prompt / Dataset Input</span>
         </div>
 
         <div>
           <label htmlFor="tok-compare-input" className="block text-[11px] font-mono uppercase tracking-wider text-slate-500 mb-1.5">
-            Live Input Text (Tested Simultaneously Across Tokenizers)
+            Live Input Text
           </label>
           <input
             id="tok-compare-input"
@@ -134,7 +125,7 @@ export const UnifiedArenaSection: React.FC = () => {
               {encodingCmp.bpeTokenCount} chunks · {encodingCmp.bpeVocabTableSize.toLocaleString()} vocab
             </div>
             <p className="mt-1 text-[11px] text-slate-600">
-              Requires JSON vocab + merge ranks + <span className="font-mono">unicodedata</span> contractions. Breaks/splits on Sudoku grids &amp; robot actions.
+              Needs JSON vocab + contraction regex. Splits digits, grids, and robot actions awkwardly.
             </p>
             <div className="mt-2 font-mono text-[11px] text-slate-700 break-all">
               Chunks: [{encodingCmp.bpeChunks.slice(0, 5).map((c) => JSON.stringify(c)).join(', ')}]
@@ -142,12 +133,12 @@ export const UnifiedArenaSection: React.FC = () => {
           </div>
 
           <div className="rounded border border-slate-200 bg-slate-50 p-3">
-            <div className="font-mono text-[11px] font-semibold text-slate-700">2. Meta BLT (Byte Latent)</div>
+            <div className="font-mono text-[11px] font-semibold text-slate-700">2. Meta BLT</div>
             <div className="mt-1 font-mono text-sm font-semibold text-slate-900 tabular-nums">
               {encodingCmp.rawByteLength} bytes · IDs 0..255
             </div>
             <p className="mt-1 text-[11px] text-slate-600">
-              Uses raw discrete integer IDs <span className="font-mono">0..255</span> + separate local entropy patcher model.
+              Raw integer IDs <span className="font-mono">0..255</span> routed into a separate entropy patcher model.
             </p>
             <div className="mt-2 font-mono text-[11px] text-slate-700 break-all">
               BLT IDs: [{encodingCmp.bltIntIds.slice(0, 7).join(', ')}...]
@@ -155,15 +146,15 @@ export const UnifiedArenaSection: React.FC = () => {
           </div>
 
           <div className="rounded border border-slate-200 bg-slate-50 p-3">
-            <div className="font-mono text-[11px] font-semibold text-slate-700">3. ncm-mlx Char + RVQ</div>
+            <div className="font-mono text-[11px] font-semibold text-slate-700">3. ncm-mlx Char + VQ</div>
             <div className="mt-1 font-mono text-sm font-semibold text-slate-900 tabular-nums">
               {encodingCmp.ncmCharVocabSize} alphabet · 2-Stage
             </div>
             <p className="mt-1 text-[11px] text-slate-600">
-              Fixed padded chars + separate Stage-1 RVQ Encoder/Decoder before Stage-2 NCM Generator.
+              Fixed padded char alphabet requiring a separate Stage-1 VQ codec before Stage-2 NCM.
             </p>
             <div className="mt-2 font-mono text-[11px] text-slate-700">
-              Pad to fixed L · separate VQ codec
+              Separate VQ tokenizer required
             </div>
           </div>
 
@@ -173,7 +164,7 @@ export const UnifiedArenaSection: React.FC = () => {
               {encodingCmp.rawByteLength} bytes · 0.000..0.255
             </div>
             <p className="mt-1 text-[11px] text-slate-700">
-              Every 8-bit input byte maps directly (<span className="font-mono">byte × 0.001</span>) into one NCM-Diffusion loop. Zero BPE merges.
+              Every 8-bit input byte enters via <span className="font-mono">byte × 0.001</span> into one NCM-Diffusion loop without BPE or VQ.
             </p>
             <div className="mt-2 font-mono text-[11px] text-blue-800 break-all">
               Quanta: [{encodingCmp.x8dQuantaIds.slice(0, 6).join(', ')}...]
@@ -182,18 +173,16 @@ export const UnifiedArenaSection: React.FC = () => {
         </div>
       </div>
 
-      {/* 2. Train Mini Portion Control Strip */}
+      {/* Train Mini Unified Model Strip */}
       <div className="mt-6 bg-white border border-slate-200 rounded-lg p-5 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
         <div className="space-y-1">
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-3">
             <span className="text-sm font-semibold text-slate-900">
-              Mini Unified 0.000–0.255 Backbone Training Status
+              Unified 0.000–0.255 Micro-Model Training
             </span>
             <span
-              className={`rounded border px-2 py-0.5 font-mono text-[11px] ${
-                weights.trainedEpochs > 0
-                  ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
-                  : 'border-amber-200 bg-amber-50 text-amber-800'
+              className={`font-mono text-xs font-semibold ${
+                weights.trainedEpochs > 0 ? 'text-emerald-700' : 'text-amber-700'
               }`}
             >
               {weights.trainedEpochs > 0
@@ -216,16 +205,16 @@ export const UnifiedArenaSection: React.FC = () => {
         </button>
       </div>
 
-      {/* 3. Three Live Test Modes Using THE ONE Model */}
+      {/* Three Live Test Modes Using THE ONE Model */}
       <div className="mt-6 grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        {/* Test Mode A: 9x9 Sudoku Solver (System 2 NCM + Diffusion Loop) */}
-        <div className="lg:col-span-4 bg-white border border-slate-200 rounded-lg p-5 space-y-4">
+        {/* Sudoku Solver */}
+        <div className="lg:col-span-4 min-w-0 bg-white border border-slate-200 rounded-lg p-5 space-y-4">
           <div className="flex items-center justify-between pb-2.5 border-b border-slate-200">
-            <h3 className="text-sm font-semibold text-slate-900">Test A · 9×9 Sudoku (System 2 Loop)</h3>
+            <h3 className="text-sm font-semibold text-slate-900">9×9 Sudoku (System 2 Loop)</h3>
             <span className="font-mono text-[11px] text-blue-700">0.049..0.057</span>
           </div>
 
-          <div className="flex gap-2">
+          <div className="flex gap-2 min-w-0">
             <select
               aria-label="Sudoku Preset"
               value={selectedSudokuId}
@@ -233,7 +222,7 @@ export const UnifiedArenaSection: React.FC = () => {
                 setSelectedSudokuId(e.target.value);
                 setSudokuResult(null);
               }}
-              className="flex-1 rounded border border-slate-300 bg-white px-2.5 py-1.5 text-xs text-slate-900"
+              className="flex-1 min-w-0 rounded border border-slate-300 bg-white px-2.5 py-1.5 text-xs text-slate-900"
             >
               {SUDOKU_PRESETS.map((p) => (
                 <option key={p.id} value={p.id}>
@@ -250,7 +239,6 @@ export const UnifiedArenaSection: React.FC = () => {
             </button>
           </div>
 
-          {/* 9x9 Grid Display */}
           <div className="grid grid-cols-9 border border-slate-400 rounded overflow-hidden font-mono text-xs text-center tabular-nums">
             {Array.from({ length: 81 }, (_, idx) => {
               const r = Math.floor(idx / 9);
@@ -280,7 +268,7 @@ export const UnifiedArenaSection: React.FC = () => {
           {sudokuResult ? (
             <div className="rounded border border-emerald-200 bg-emerald-50/60 p-3 text-xs space-y-1">
               <div className="font-mono font-semibold text-emerald-900">
-                {sudokuResult.solved ? '● Solved 0 Conflicts' : 'Unsolved'} · {sudokuResult.iterationsUsed} NCM+Diff Loops
+                {sudokuResult.solved ? 'Solved 0 Conflicts' : 'Unsolved'} · {sudokuResult.iterationsUsed} NCM+Diff Loops
               </div>
               <div className="font-mono text-[11px] text-slate-700 break-all">
                 Row-0 Quanta: [{sudokuResult.outputQuantaSample.join(', ')}]
@@ -288,21 +276,20 @@ export const UnifiedArenaSection: React.FC = () => {
             </div>
           ) : (
             <div className="text-[11px] font-mono text-slate-500">
-              Click &quot;Solve&quot; (or &quot;Train&quot;) to solve in-loop using 0.049..0.057 cell quanta.
+              Click &quot;Solve&quot; or &quot;Train&quot; to solve in-loop over 0.049..0.057 digit bytes.
             </div>
           )}
         </div>
 
-        {/* Test Mode B: Decision-by-Decision Snake Game (System 1 Iter-1 Expert) */}
-        <div className="lg:col-span-4 bg-white border border-slate-200 rounded-lg p-5 space-y-4">
+        {/* Decision-by-Decision Snake Game */}
+        <div className="lg:col-span-4 min-w-0 bg-white border border-slate-200 rounded-lg p-5 space-y-4">
           <div className="flex items-center justify-between pb-2.5 border-b border-slate-200">
-            <h3 className="text-sm font-semibold text-slate-900">Test B · Snake (System 1 Iter 1)</h3>
+            <h3 className="text-sm font-semibold text-slate-900">Snake (System 1 Expert · Iter 1)</h3>
             <span className="font-mono text-[11px] text-emerald-700">
               Score {snakeState.score} · Tick {snakeState.tick}
             </span>
           </div>
 
-          {/* 10x10 Snake Grid */}
           <div
             className="grid grid-cols-10 gap-0.5 rounded border border-slate-300 bg-slate-200 p-1 mx-auto max-w-[260px]"
             role="img"
@@ -379,17 +366,17 @@ export const UnifiedArenaSection: React.FC = () => {
               </>
             ) : (
               <div className="text-slate-500 text-[11px]">
-                Dynamic PRNG food + anti-loop flood-fill active. Click &quot;Step +1&quot; or &quot;Auto&quot; (Reset picks a fresh food seed).
+                Dynamic PRNG food + anti-loop flood-fill active. Click &quot;Step +1 Decision&quot; or &quot;Auto&quot;.
               </div>
             )}
           </div>
         </div>
 
-        {/* Test Mode C: Prompt / Question Solving in 0.000..0.255 */}
-        <div className="lg:col-span-4 bg-white border border-slate-200 rounded-lg p-5 space-y-4">
+        {/* Prompt / Question Solving in 0.000..0.255 */}
+        <div className="lg:col-span-4 min-w-0 bg-white border border-slate-200 rounded-lg p-5 space-y-4">
           <div className="flex items-center justify-between pb-2.5 border-b border-slate-200">
-            <h3 className="text-sm font-semibold text-slate-900">Test C · Question Solving</h3>
-            <span className="font-mono text-[11px] text-slate-500">S1 + S2 Prompt Gate</span>
+            <h3 className="text-sm font-semibold text-slate-900">Prompt &amp; Question Solving</h3>
+            <span className="font-mono text-[11px] text-slate-500">0.000–0.255 → UTF-8</span>
           </div>
 
           <form onSubmit={handleEvaluateQa} className="space-y-2.5">
@@ -425,7 +412,7 @@ export const UnifiedArenaSection: React.FC = () => {
               type="submit"
               className="w-full rounded bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-800 cursor-pointer"
             >
-              Run Prompt in 0.000–0.255 Unified Model
+              Run Prompt in Unified Model
             </button>
           </form>
 
@@ -445,11 +432,11 @@ export const UnifiedArenaSection: React.FC = () => {
               <div className="text-[11px] text-slate-600">{qaResult.rationale}</div>
               <details className="pt-1 border-t border-slate-200 text-[11px] font-mono text-slate-500">
                 <summary className="cursor-pointer hover:text-slate-800">
-                  Inspect 0.000–0.255 I/O Byte Quanta Trace
+                  Inspect 0.000–0.255 I/O Quanta Trace
                 </summary>
                 <div className="mt-1.5 space-y-1 text-blue-700 break-all">
-                  <div>In Quanta: [{qaResult.inputQuanta.slice(0, 8).join(', ')}...]</div>
-                  <div>Out Quanta: [{qaResult.answerQuanta.slice(0, 8).join(', ')}...]</div>
+                  <div>In Quanta: [{qaResult.inputQuanta.slice(0, 8).join(', ')}]</div>
+                  <div>Out Quanta: [{qaResult.answerQuanta.slice(0, 8).join(', ')}]</div>
                 </div>
               </details>
             </div>

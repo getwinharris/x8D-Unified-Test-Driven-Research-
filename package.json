@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
-    "bench:subbit": "tsx scripts/benchmark_subbit_eval.ts"
+    "bench:subbit": "tsx scripts/benchmark_subbit_eval.ts",
+    "bench:needle3": "tsx scripts/benchmark_needle3.ts"
   },
   "dependencies": {
     "@google/genai": "^3.3.0",

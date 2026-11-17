@@ -13,10 +13,10 @@ import {
   simulateUnifiedX8DImage,
 } from './architectureMath';
 
-test('Unified multi-codec .x8D binary image packs full 50M NCM under 0.002x BF16 with mmap framing', () => {
+test('Unified .x8D sub-bit binary image packs 50M NCM under 0.002x BF16 with direct-seek tail index', () => {
   const img = simulateUnifiedX8DImage({
     scaleId: 'ncm-50m',
-    attentionCodec: 'kron-littlebit',
+    attentionCodec: 'kron-factored',
     kroneckerTerms: 1,
     kroneckerBits: 4,
     bytePriorAccuracy: 0.999,

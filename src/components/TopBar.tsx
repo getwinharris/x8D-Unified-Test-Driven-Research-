@@ -12,7 +12,7 @@ export const TopBar: React.FC<TopBarProps> = ({ onFocusAdvisor }) => {
           href="#summary"
           className="font-display text-lg font-bold tracking-tight text-slate-900 whitespace-nowrap shrink-0 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-blue-600"
         >
-          x8D Unified Lab
+          x8D Unified Model
         </a>
 
         <nav aria-label="Primary navigation" className="hidden md:flex items-center gap-6 text-sm font-medium text-slate-600">
@@ -20,25 +20,19 @@ export const TopBar: React.FC<TopBarProps> = ({ onFocusAdvisor }) => {
             href="#summary"
             className="hover:text-slate-900 hover:underline underline-offset-4 transition-colors whitespace-nowrap shrink-0"
           >
-            Unified Loop
+            Unified Model
           </a>
           <a
             href="#system-dual"
             className="hover:text-slate-900 hover:underline underline-offset-4 transition-colors whitespace-nowrap shrink-0"
           >
-            System 1 vs 2
-          </a>
-          <a
-            href="#hf-workbench"
-            className="hover:text-slate-900 hover:underline underline-offset-4 transition-colors whitespace-nowrap shrink-0"
-          >
-            HF Test &amp; Train
+            Prompt→Output NCM
           </a>
           <a
             href="#unified-arena"
             className="hover:text-slate-900 hover:underline underline-offset-4 transition-colors whitespace-nowrap shrink-0"
           >
-            Sudoku &amp; Snake
+            Test &amp; Train
           </a>
           <a
             href="#subbit-frontier"
@@ -47,10 +41,10 @@ export const TopBar: React.FC<TopBarProps> = ({ onFocusAdvisor }) => {
             0.008 bpw .x8D
           </a>
           <a
-            href="#memory-agent"
+            href="#repo-audit"
             className="hover:text-slate-900 hover:underline underline-offset-4 transition-colors whitespace-nowrap shrink-0"
           >
-            memory.x8D
+            Repo Audit
           </a>
         </nav>
 

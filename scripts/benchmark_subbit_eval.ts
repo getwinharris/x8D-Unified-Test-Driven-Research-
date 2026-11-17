@@ -4,7 +4,7 @@ const report = runSubBitComparisonBenchmark();
 
 console.log('====================================================================================================');
 console.log(`x8D SIDE-BY-SIDE QUANTIZATION, PERPLEXITY & TASK BENCHMARK (${report.matrixShape})`);
-console.log(`Evaluated Weights: ${report.totalWeightsEvaluated.toLocaleString()} | Eval Stream: ${report.evalStreamBytes} bytes | Tag: MEASURED_LOCAL_EVAL`);
+console.log(`Evaluated Weights: ${report.totalWeightsEvaluated.toLocaleString()} | Eval Stream: ${report.evalStreamBytes} bytes`);
 console.log('====================================================================================================');
 
 const header = [

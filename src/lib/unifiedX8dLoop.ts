@@ -13,45 +13,45 @@ export type InternalRepresentationId =
 
 export const REPRESENTATION_OPTIONS: Record<
   InternalRepresentationId,
-  { label: string; status: 'CANDIDATE_EXPERIMENT' | 'HISTORICAL_BASELINE'; summary: string }
+  { label: string; tag: string; summary: string }
 > = {
   'adaptive-entropy-chunks': {
-    label: 'Adaptive Entropy Chunks (Variable)',
-    status: 'CANDIDATE_EXPERIMENT',
-    summary: 'Splits raw 0..255 streams cleanly along local byte-entropy transitions (16–96B) without forcing an 8×8 box.',
+    label: 'Adaptive Entropy Chunks',
+    tag: 'Variable Spans',
+    summary: 'Splits raw 0..255 streams along local byte-entropy boundaries without forcing a fixed grid.',
   },
   'ncm-concept-hierarchy': {
-    label: 'Learned Concept Hierarchy (NCM)',
-    status: 'CANDIDATE_EXPERIMENT',
-    summary: 'Data-dependent semantic/structural concept grouping learned jointly in training (arXiv:2610.14162).',
+    label: 'Prompt-to-Output NCM Concepts',
+    tag: 'arXiv:2610.14162',
+    summary: 'Predicts coarse concept outlines first inside the diffusion loop, then refines high-entropy spans.',
   },
   'kda-recurrent-state': {
-    label: 'Recurrent KDA Matrix State',
-    status: 'CANDIDATE_EXPERIMENT',
-    summary: 'Fixed-size O(1) continuous associative memory streaming tokens without spatial patching.',
+    label: 'Recurrent KDA Memory State',
+    tag: 'O(1) State',
+    summary: 'Fixed-size continuous associative memory streaming 0.000–0.255 bytes linearly.',
   },
   'fixed-8x8-baseline': {
-    label: 'Fixed 8×8 Grid (Historical Baseline)',
-    status: 'HISTORICAL_BASELINE',
-    summary: 'Legacy 64-byte DSpark/Issue #64 block grid kept strictly as a baseline control—never a mandatory x8D axiom.',
+    label: 'Fixed 8×8 Grid',
+    tag: 'Historical Baseline',
+    summary: 'Legacy 64-byte DSpark/Issue #64 block grid kept strictly as a baseline control.',
   },
 };
 
 export interface UnifiedLoopConfig {
   taskMode: SystemTaskMode;
   representationMode?: InternalRepresentationId;
-  system1EntropyThreshold: number; // 0.15 .. 0.85 normalized entropy threshold for 1-step System 1 exit
-  maxDiffusionIterations: number; // e.g. 4..32 for System 2 high-entropy blocks
-  ncmCoarseLevels: number; // 2..4 levels inside x8D loop
+  system1EntropyThreshold: number;
+  maxDiffusionIterations: number;
+  ncmCoarseLevels: number;
 }
 
 export interface ByteBlockAnalysis {
   blockIndex: number;
   byteCount: number;
-  normalizedEntropy: number; // 0..1
+  normalizedEntropy: number;
   routedSystem: 'system-1' | 'system-2';
   iterationsUsed: number;
-  sampleQuanta: string[]; // e.g. ['0.065', '0.123', ...]
+  sampleQuanta: string[];
 }
 
 export interface UnifiedLoopSimulationResult {
@@ -64,7 +64,7 @@ export interface UnifiedLoopSimulationResult {
   estimatedLatencyMs: number;
   speedupVsFullDiffusion: number;
   shannonBitsPerByte: number;
-  compressedBytesCodec01: number;
+  compressedBytesArith: number;
   compressionRatio: number;
   losslessRoundtripVerified: boolean;
   blocks: ByteBlockAnalysis[];
@@ -86,47 +86,47 @@ export interface SystemArchitectureComparison {
 export const SYSTEM_COMPARISON_MATRIX: SystemArchitectureComparison[] = [
   {
     id: 'pure-s1',
-    paradigm: 'Pure System 1 (Autoregressive / Reflex Policy)',
+    paradigm: 'Pure Autoregressive / Reflex Policy',
     examples: 'GPT-style AR, single-step MLP / CNN game policy',
     tokenDomain: 'BPE Subwords or Continuous Float Actions',
     system1Role: 'Runs greedy/top-p forward pass per token (1 pass/token)',
     system2Role: 'None (only implicit chain-of-thought emitted as extra tokens)',
-    gameAndControlLatency: 'Low per step, O(T) sequential ceiling',
+    gameAndControlLatency: 'Low per step, sequential ceiling',
     reasoningDepth: 'Myopic; cannot revise earlier structural mistakes globally',
-    modelAndMemoryCost: '1x model weights, growing O(T) KV cache',
+    modelAndMemoryCost: 'Full KV cache growth in RAM',
   },
   {
     id: 'pure-s2',
-    paradigm: 'Pure System 2 (Iterative Diffusion / Search)',
+    paradigm: 'Pure Iterative Diffusion',
     examples: 'Standard MDLM, DREAM, DiffusionGemma 48-step sampler',
     tokenDomain: 'Masked Tokens (MASK=256) or 0..255 Noise',
-    system1Role: 'None — burns full T=32–48 denoising passes on every token',
+    system1Role: 'None — burns full T=32–48 denoising passes on every span',
     system2Role: 'Full canvas denoising across all sequence positions',
     gameAndControlLatency: 'High (48x passes too slow for live game/robot ticks)',
     reasoningDepth: 'Strong global planning & bidirectional constraint satisfaction',
-    modelAndMemoryCost: '1x weights, high compute FLOPs on trivial spans',
+    modelAndMemoryCost: 'High compute FLOPs even on trivial spans',
   },
   {
     id: 'split-dual',
-    paradigm: 'Two-Model Dual-System (Split VLM + Expert)',
-    examples: 'NVIDIA GR00T N1 (Eagle VLM S2 + DiT Action S1), Talker-Reasoner',
-    tokenDomain: 'Visual/Text Tokens (S2) -> Adapter -> Float Actions (S1)',
-    system1Role: 'Separate lightweight Diffusion/Flow action head (~10ms control)',
-    system2Role: 'Heavy frozen/slow VLM planner running asynchronously',
-    gameAndControlLatency: 'Fast S1 motor loop once S2 latent updates',
-    reasoningDepth: 'Strong, but bridged across lossy representation adapters',
-    modelAndMemoryCost: '2 separate models + bridge adapters in RAM/disk',
+    paradigm: 'Split Dual-System Pipeline',
+    examples: 'Two separate models bridged by adapters',
+    tokenDomain: 'Visual/Text Tokens -> Adapter -> Float Actions',
+    system1Role: 'Separate lightweight action head',
+    system2Role: 'Separate heavy frozen/slow planner running asynchronously',
+    gameAndControlLatency: 'Fast motor loop once latent updates',
+    reasoningDepth: 'Bridged across lossy representation adapters',
+    modelAndMemoryCost: '2 separate checkpoints + adapters in RAM/disk',
   },
   {
     id: 'x8d-ncm-hybrid',
-    paradigm: 'Unified 1-Model x8D NCM-Diffusion Hybrid (Ours)',
-    examples: 'Single x8D backbone + NCM coarse pass inside diffusion loop',
-    tokenDomain: 'Native Unified 0.000..0.255 Quanta (All Modalities)',
-    system1Role: 'Fast Expert exit after NCM Iter 1 on confident/game/control spans (or PR #74)',
-    system2Role: 'Stays inside x8D NCM + Diffusion iterative loop only for high-entropy blocks',
-    gameAndControlLatency: '1-step fast commit (~2–5 ms) with shared contextual priors',
-    reasoningDepth: 'NCM coarse outline + Uni-LaDiR latent state + iterative fine pass',
-    modelAndMemoryCost: 'Target: 1 unified .x8D image (~50.5 KB @ 50M / ~957 MB @ 1T proj via f.seek/read, no mmap)',
+    paradigm: 'Unified x8D Omni Diffusion–NCM (Ours)',
+    examples: 'Single mixture with System 1 Decision Expert + System 2 NCM-Diffusion',
+    tokenDomain: 'Native Unified 0.000..0.255 Bytes (Prompt to Output)',
+    system1Role: 'System 1 decision expert inside the mixture commits on Iter 1 (games, robotics, PR #74)',
+    system2Role: 'NCM coarse-to-fine + iterative diffusion only on high-entropy spans (code, math, reasoning)',
+    gameAndControlLatency: '1-step fast commit (~2–5 ms) inside shared weights',
+    reasoningDepth: 'NCM Prompt-to-Output schedule + continuous latent state refinement',
+    modelAndMemoryCost: 'Target: 0.008 bpw raw .x8D streamed via f.seek/read (<1 GB RAM, no mmap)',
     isOurHybrid: true,
   },
 ];
@@ -169,8 +169,8 @@ export function toX8dQuantaString(byteVal: number): string {
 }
 
 /**
- * Pure TypeScript lossless delta + run-length zero packer simulating Codec 0x01
- * inside an x8D binary image. Verifies bit-exact decoding on every input.
+ * Pure TypeScript lossless delta + run-length zero packer modeling x8d_arith
+ * inside a raw .x8D binary image. Verifies bit-exact decoding on every input.
  */
 export function encodeDecodeCodec01(bytes: Uint8Array): { packedBytes: number; exactMatch: boolean } {
   if (bytes.length === 0) {
@@ -377,7 +377,7 @@ export function simulateUnifiedLoop(textPayload: string, config: UnifiedLoopConf
     estimatedLatencyMs,
     speedupVsFullDiffusion,
     shannonBitsPerByte,
-    compressedBytesCodec01: codecRes.packedBytes,
+    compressedBytesArith: codecRes.packedBytes,
     compressionRatio: totalBytes / Math.max(1, codecRes.packedBytes),
     losslessRoundtripVerified: codecRes.exactMatch,
     blocks,

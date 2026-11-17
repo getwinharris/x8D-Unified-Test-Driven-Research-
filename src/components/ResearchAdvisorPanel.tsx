@@ -14,9 +14,9 @@ interface ResearchAdvisorPanelProps {
 }
 
 const PRESET_QUERIES = [
-  'Compare adaptive entropy chunks vs. learned NCM concepts vs. fixed 8x8 baseline under matched compute for game reflexes and GSM8K reasoning.',
-  'Design the distributed ZeRO-2 + direct f.seek/read dataloader layout for streaming LeRobot PushT and GR00T-X-Embodiment-Sim 0.000..0.255 bytes into the unified model.',
-  'How do we pair 10T-50T cloud model.x8D with local on-device memory.x8D via direct f.seek/read so user skills/MCP execute with zero private data leakage?',
+  'Compare Prompt-to-Output NCM concepts vs. adaptive entropy chunks vs. fixed 8x8 baseline under matched compute inside one unified model.',
+  'Design the Issue #56 QAT/STE training schedule so dense FFN/attention weights export cleanly to 0.008 bpw .x8D without #57 block-mean loss.',
+  'Detail the C/Rust open("rb") + f.seek/f.read tile loop so a 1T unified model runs System 1 decisions and System 2 loops under 1 GB RAM on CPU/phone.',
 ];
 
 export const ResearchAdvisorPanel: React.FC<ResearchAdvisorPanelProps> = ({ config, inputRef }) => {
@@ -34,7 +34,7 @@ export const ResearchAdvisorPanel: React.FC<ResearchAdvisorPanelProps> = ({ conf
       `Scale: ${scale.label} (${sim.params.totalParams.toLocaleString()} params, ${scale.nLayers}L, d=${scale.dModel})`,
       `Quantization: ${quant.name} (${sim.effectiveBitsPerWeight} bpw, viable=${sim.forwardPassViable})`,
       `Execution: ${config.executionMode} | Disk=${formatBytes(sim.diskBytes)} | ActiveRAM=${formatBytes(sim.activeWorkingSetRamBytes)} | TileDRAM=${formatBytes(sim.peakAluTileDramBytes)}`,
-      `Distributed Nodes: ${config.distributedNodes} | NCM Skip Rate: ${Math.round(config.ncmCoarseBypassRate * 100)}%`,
+      `NCM Skip Rate: ${Math.round(config.ncmCoarseBypassRate * 100)}%`,
     ].join('\n');
   };
 
@@ -76,19 +76,19 @@ export const ResearchAdvisorPanel: React.FC<ResearchAdvisorPanelProps> = ({ conf
     <section id="research-advisor" className="mx-auto max-w-[1360px] px-6 py-12">
       <div className="max-w-3xl">
         <div className="text-xs font-mono uppercase tracking-wider text-slate-500">
-          10. Deep-Reasoning Engineering Advisor
+          05. Engineering Advisor (Unified x8D Architecture)
         </div>
         <h2 className="mt-1.5 text-2xl font-bold tracking-tight text-slate-900">
           Interactive High-Thinking Architecture Analysis
         </h2>
         <p className="mt-2 text-sm text-slate-600 leading-relaxed">
-          Query the server-side reasoning backend (configured with <span className="font-mono text-slate-800">ThinkingLevel.HIGH</span>)
-          using your active Footprint Lab configuration as live engineering context.
+          Query the server-side reasoning backend using your active <span className="font-mono">.x8D</span> scale and
+          sub-bit parameters as live engineering context.
         </p>
       </div>
 
       <div className="mt-6 grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        <form onSubmit={handleSubmit} className="lg:col-span-5 bg-white border border-slate-200 rounded-lg p-5 space-y-4">
+        <form onSubmit={handleSubmit} className="lg:col-span-5 min-w-0 bg-white border border-slate-200 rounded-lg p-5 space-y-4">
           <div>
             <label htmlFor="advisor-query-input" className="block text-xs font-mono uppercase tracking-wider text-slate-500 mb-2">
               Technical Query
@@ -99,7 +99,7 @@ export const ResearchAdvisorPanel: React.FC<ResearchAdvisorPanelProps> = ({ conf
               rows={5}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Ask about 4KB seekable x8d_arith frames, GR00T cross-attention bottlenecking, Muon vs AdamW sharding, or NCM causal ablations..."
+              placeholder="Ask about Issue #56 QAT/STE, x8d_arith frames, Prompt-to-Output NCM, or direct f.seek/read streaming..."
               className="w-full rounded-md border border-slate-300 bg-white p-3 text-xs text-slate-900 placeholder:text-slate-400 focus:border-blue-600 focus:outline-none leading-relaxed"
             />
           </div>
@@ -126,7 +126,7 @@ export const ResearchAdvisorPanel: React.FC<ResearchAdvisorPanelProps> = ({ conf
             {loading ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin" />
-                <span>Analyzing with High Thinking...</span>
+                <span>Analyzing...</span>
               </>
             ) : (
               <>
@@ -137,7 +137,7 @@ export const ResearchAdvisorPanel: React.FC<ResearchAdvisorPanelProps> = ({ conf
           </button>
         </form>
 
-        <div className="lg:col-span-7 bg-white border border-slate-200 rounded-lg p-5 min-h-[340px] flex flex-col">
+        <div className="lg:col-span-7 min-w-0 bg-white border border-slate-200 rounded-lg p-5 min-h-[340px] flex flex-col">
           <div className="flex items-center justify-between gap-2 pb-3 border-b border-slate-200 text-xs font-mono text-slate-500">
             <span>ADVISOR OUTPUT</span>
             {metaInfo ? (
@@ -169,8 +169,8 @@ export const ResearchAdvisorPanel: React.FC<ResearchAdvisorPanelProps> = ({ conf
             <div className="flex-1 flex flex-col items-center justify-center py-12 text-center max-w-md mx-auto">
               <p className="text-sm font-medium text-slate-900">Ready for deep systems analysis</p>
               <p className="mt-1.5 text-xs text-slate-500 leading-relaxed">
-                Select a prompt or enter your own engineering question on the left. Your active Footprint Lab scale,
-                quantization mode, and NCM parameters are injected automatically.
+                Select a prompt or enter your own engineering question on the left. Your active scale,
+                sub-bit mode, and NCM parameters are injected automatically.
               </p>
             </div>
           )}
