@@ -9,6 +9,7 @@ import {
   simulateUnifiedX8DImage,
 } from '../lib/architectureMath';
 import { SUB_1_BIT_COMPARISON } from '../data/researchData';
+import { runSubBitComparisonBenchmark } from '../lib/quantBenchmarkEngine';
 
 interface EmpiricalRow {
   frameSpec: string;
@@ -87,6 +88,7 @@ export const SubBitFrontierSection: React.FC = () => {
 
   const [sampleByte, setSampleByte] = useState<number>(65);
   const [priorPct, setPriorPct] = useState<number>(99.98);
+  const liveBench = useMemo(() => runSubBitComparisonBenchmark(), []);
 
   const x8dImage = useMemo(
     () =>
@@ -473,6 +475,86 @@ export const SubBitFrontierSection: React.FC = () => {
               ))}
             </tbody>
           </table>
+        </div>
+      </div>
+
+      {/* Live Executable Side-by-Side Perplexity & Task Accuracy Benchmark (npm run bench:subbit) */}
+      <div className="mt-8 bg-white border border-slate-200 rounded-lg overflow-hidden" data-testid="live-perplexity-bench">
+        <div className="px-4 py-3 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <h3 className="text-xs font-mono font-semibold uppercase tracking-wider text-slate-700">
+              Measured Side-by-Side Quantization, Byte Perplexity &amp; Task Accuracy ({liveBench.matrixShape})
+            </h3>
+            <p className="text-[11px] text-slate-500 mt-0.5">
+              Live execution of the identical benchmark engine (<span className="font-mono">npm run bench:subbit</span>) across{' '}
+              {liveBench.totalWeightsEvaluated.toLocaleString()} calibrated FFN/LM weights &amp; {liveBench.evalStreamBytes} held-out bytes.
+              <strong className="text-slate-700"> Note:</strong> Micro-matrix eval is MEASURED locally; 50M/1B/1T full-checkpoint PPL remains an experimental hypothesis until multi-epoch training finishes.
+            </p>
+          </div>
+          <span className="text-xs font-mono text-blue-700 font-semibold">MEASURED_LOCAL_EVAL</span>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="border-b border-slate-200 bg-slate-50/60 text-[11px] font-mono uppercase tracking-wider text-slate-500">
+                <th className="py-2.5 px-4">Compression Regime</th>
+                <th className="py-2.5 px-3 text-right">Stored BPW</th>
+                <th className="py-2.5 px-3 text-right">Cosine</th>
+                <th className="py-2.5 px-3 text-right">Byte PPL</th>
+                <th className="py-2.5 px-3 text-right">ΔPPL vs BF16</th>
+                <th className="py-2.5 px-3 text-right">Top-1 Acc</th>
+                <th className="py-2.5 px-3 text-right">Snake Score</th>
+                <th className="py-2.5 px-4">On-Disk / Tile RAM Path</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-200 text-xs">
+              {liveBench.rows.map((row) => {
+                const isBroken = row.methodId === 'legacy-blockmean-57';
+                const isX8d = row.methodId.startsWith('x8d-');
+                return (
+                  <tr
+                    key={row.methodId}
+                    className={
+                      isBroken
+                        ? 'bg-rose-50/50 align-top'
+                        : isX8d
+                          ? 'bg-blue-50/50 align-top'
+                          : 'hover:bg-slate-50/70 align-top'
+                    }
+                  >
+                    <td className="py-2.5 px-4 font-semibold text-slate-900 whitespace-nowrap">{row.label}</td>
+                    <td className="py-2.5 px-3 font-mono tabular-nums text-right text-slate-900 whitespace-nowrap">
+                      {row.bpw.toFixed(4)}
+                    </td>
+                    <td className="py-2.5 px-3 font-mono tabular-nums text-right font-semibold text-slate-900 whitespace-nowrap">
+                      {row.cosineSimilarity.toFixed(4)}
+                    </td>
+                    <td className="py-2.5 px-3 font-mono tabular-nums text-right text-slate-900 whitespace-nowrap">
+                      {row.bytePerplexity.toFixed(2)}
+                    </td>
+                    <td
+                      className={`py-2.5 px-3 font-mono tabular-nums text-right whitespace-nowrap ${
+                        row.pplDeltaVsBf16 <= 1.5 ? 'text-emerald-700' : isBroken ? 'text-rose-700 font-semibold' : 'text-amber-700'
+                      }`}
+                    >
+                      {row.pplDeltaVsBf16 >= 0 ? `+${row.pplDeltaVsBf16.toFixed(2)}` : row.pplDeltaVsBf16.toFixed(2)}
+                    </td>
+                    <td className="py-2.5 px-3 font-mono tabular-nums text-right text-slate-800 whitespace-nowrap">
+                      {row.headAccuracyPct.toFixed(1)}%
+                    </td>
+                    <td className="py-2.5 px-3 font-mono tabular-nums text-right text-slate-900 whitespace-nowrap">
+                      {row.snakeFoodScore120Steps} pts
+                    </td>
+                    <td className="py-2.5 px-4 text-slate-600 leading-relaxed">{row.onDiskTileRamNote}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        <div className="px-4 py-3 bg-slate-50 border-t border-slate-200 text-xs text-slate-600 leading-relaxed">
+          <strong className="font-semibold text-slate-900">Why Scalar Shannon/Huffman Hits a Wall vs. Direct-Seek Latent S1 Math:</strong>{' '}
+          {liveBench.shannonWallInsight}
         </div>
       </div>
     </section>

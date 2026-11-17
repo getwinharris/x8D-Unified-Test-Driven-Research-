@@ -1,6 +1,8 @@
 import React, { useMemo, useState } from 'react';
 import {
   ByteBlockAnalysis,
+  InternalRepresentationId,
+  REPRESENTATION_OPTIONS,
   SYSTEM_COMPARISON_MATRIX,
   SystemTaskMode,
   TASK_PRESET_SAMPLES,
@@ -19,6 +21,7 @@ export const SystemDualSection: React.FC<SystemDualSectionProps> = ({
 }) => {
   const [config, setConfig] = useState<UnifiedLoopConfig>({
     taskMode: 'game-reflex',
+    representationMode: 'adaptive-entropy-chunks',
     system1EntropyThreshold: TASK_PRESET_SAMPLES['game-reflex'].defaultThreshold,
     maxDiffusionIterations: 24,
     ncmCoarseLevels: 3,
@@ -66,10 +69,9 @@ export const SystemDualSection: React.FC<SystemDualSectionProps> = ({
         </h2>
         <p className="mt-2 text-sm text-slate-600 leading-relaxed">
           Instead of splitting System 2 (slow VLM) and System 1 (separate DiT action model) like GR00T N1, our
-          architecture embeds Next-Concept Modeling (NCM) <strong className="font-semibold text-slate-900">directly inside x8D&apos;s iterative 8×8 loop</strong>.
-          Every modality shares native <span className="font-mono text-slate-800">0.000–0.255</span> byte quanta:
-          confident predictions, game ticks, and robot controls exit at Iteration 1 (System 1 Expert), while
-          high-entropy reasoning blocks stay inside the NCM + Diffusion self-conditioning loop.
+          architecture embeds Next-Concept Modeling (NCM) <strong className="font-semibold text-slate-900">directly inside x8D&apos;s denoising loop</strong>.
+          Every modality shares native <span className="font-mono text-slate-800">0.000–0.255</span> byte quanta while decoupling four separate concerns:
+          (1) 0..255 byte I/O, (2) experimental internal grouping (adaptive chunks, learned NCM, KDA state, or fixed 8×8 baseline), (3) sub-byte weight codecs, and (4) S1/S2 scheduling.
         </p>
       </div>
 
@@ -77,10 +79,10 @@ export const SystemDualSection: React.FC<SystemDualSectionProps> = ({
       <div className="mt-6 bg-white border border-slate-200 rounded-lg p-5">
         <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-slate-200">
           <h3 className="text-sm font-semibold text-slate-900">
-            Single-Backbone Loop Execution Flow (0.000..0.255 Unified Token Space)
+            Single-Backbone Loop Execution Flow (0.000..0.255 Unified Token Space · No Mandatory 8×8 Grid)
           </h3>
           <span className="text-xs font-mono text-slate-500">
-            1 Unified .x8D Image · Shared KDA/MLA + AttnRes Weights
+            4 Decoupled Architectural Layers · Experimental Hypothesis
           </span>
         </div>
 
@@ -89,7 +91,7 @@ export const SystemDualSection: React.FC<SystemDualSectionProps> = ({
             <div className="font-mono text-[11px] font-semibold text-blue-700">STAGE A · UNIFIED INPUT</div>
             <div className="mt-1 font-semibold text-slate-900">Raw Bytes → 0.000..0.255</div>
             <p className="mt-1 text-slate-600 leading-relaxed">
-              Text, game actions, audio PCM, and GR00T kinematics map identically (<span className="font-mono">65 → 0.065</span>) into 8×8 DSpark blocks—zero adapter bridge.
+              Text, game actions, audio PCM, and GR00T kinematics map identically (<span className="font-mono">65 → 0.065</span>) before entering candidate internal structures.
             </p>
           </div>
 
@@ -172,6 +174,40 @@ export const SystemDualSection: React.FC<SystemDualSectionProps> = ({
       <div className="mt-6 grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         <div className="lg:col-span-5 bg-white border border-slate-200 rounded-lg p-5 space-y-5">
           <div>
+            <div className="text-xs font-mono uppercase tracking-wider text-slate-500 mb-2">
+              Internal Representation Experiment (8×8 Is Optional Baseline Only)
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+              {(Object.keys(REPRESENTATION_OPTIONS) as InternalRepresentationId[]).map((repId) => {
+                const rep = REPRESENTATION_OPTIONS[repId];
+                const active = (config.representationMode ?? 'adaptive-entropy-chunks') === repId;
+                return (
+                  <button
+                    key={repId}
+                    type="button"
+                    data-testid={`rep-btn-${repId}`}
+                    onClick={() => {
+                      setConfig((prev) => ({ ...prev, representationMode: repId }));
+                      setSelectedBlockIdx(0);
+                    }}
+                    className={`text-left rounded border p-2 text-xs transition-colors cursor-pointer ${
+                      active
+                        ? 'border-blue-600 bg-blue-50 text-blue-900'
+                        : 'border-slate-200 bg-slate-50 text-slate-700 hover:border-slate-300'
+                    }`}
+                  >
+                    <div className="font-semibold truncate">{rep.label}</div>
+                    <div className="font-mono text-[10px] text-slate-500 mt-0.5">{rep.status}</div>
+                  </button>
+                );
+              })}
+            </div>
+            <p className="mt-1.5 text-[11px] text-slate-600 leading-relaxed">
+              {REPRESENTATION_OPTIONS[config.representationMode ?? 'adaptive-entropy-chunks'].summary}
+            </p>
+          </div>
+
+          <div className="pt-2 border-t border-slate-200">
             <div className="text-xs font-mono uppercase tracking-wider text-slate-500 mb-2">
               Task Regime Preset
             </div>
@@ -339,7 +375,7 @@ export const SystemDualSection: React.FC<SystemDualSectionProps> = ({
           <div className="bg-white border border-slate-200 rounded-lg p-5">
             <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-slate-200">
               <h3 className="text-sm font-semibold text-slate-900">
-                Live DSpark 8×8 Block Routing Map ({sim.totalBytes} bytes → {sim.totalBlocks} block{sim.totalBlocks > 1 ? 's' : ''})
+                Live Latent Span Routing ({REPRESENTATION_OPTIONS[config.representationMode ?? 'adaptive-entropy-chunks'].label} · {sim.totalBytes}B → {sim.totalBlocks} spans)
               </h3>
               <div className="flex items-center gap-4 text-[11px] font-mono">
                 <span className="flex items-center gap-1.5 text-emerald-800">

@@ -14,7 +14,7 @@ interface ResearchAdvisorPanelProps {
 }
 
 const PRESET_QUERIES = [
-  'How does NCM Iter-1 System 1 exit integrate inside x8D 8x8 blocks so game/control streams commit in ~2-5ms while GSM8K blocks keep iterating?',
+  'Compare adaptive entropy chunks vs. learned NCM concepts vs. fixed 8x8 baseline under matched compute for game reflexes and GSM8K reasoning.',
   'Design the distributed ZeRO-2 + direct f.seek/read dataloader layout for streaming LeRobot PushT and GR00T-X-Embodiment-Sim 0.000..0.255 bytes into the unified model.',
   'How do we pair 10T-50T cloud model.x8D with local on-device memory.x8D via direct f.seek/read so user skills/MCP execute with zero private data leakage?',
 ];

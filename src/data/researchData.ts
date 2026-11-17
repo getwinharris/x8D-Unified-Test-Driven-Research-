@@ -173,13 +173,13 @@ export const REPO_ISSUES_AND_PRS: RepoIssueRecord[] = [
     kind: 'ISSUE',
     state: 'OPEN',
     category: 'ncm-reasoning',
-    title: 'research/feat: NCM-inspired coarse-to-fine adaptive 8x8 byte diffusion scheduling',
+    title: 'research/feat: NCM-inspired coarse-to-fine adaptive byte diffusion scheduling',
     takeaway:
-      'Predicts coarse 8x8 outlines in Iteration 1, exiting confident spans (System 1) while iterating only high-entropy spans (System 2).',
+      'Adapts Next-Concept Modeling (arXiv:2610.14162): November follow-up notes fixed 8x8 scheduling is only an x8D hypothesis, not a validated requirement.',
     impactOn50MPlan:
-      'Core 5x–10x inference speedup inside one unified NCM + Diffusion model.',
+      'Keep fixed 8x8 solely as a control baseline; test adaptive entropy chunks, learned concept hierarchies, and KDA state under matched compute (target: >=4x hypothesis).',
     proposedSolution:
-      'Track per-block normalized entropy `H_norm`; blocks with `H_norm <= tau_S1` freeze immediately after Iter 1 while high-entropy contact/math blocks loop Iter 2..T.',
+      'Run matched-FLOP A/B benchmarks comparing variable entropy chunks vs. learned NCM concepts vs. 8x8 baseline instead of hardcoding 8x8.',
   },
   {
     number: 63,
@@ -188,11 +188,11 @@ export const REPO_ISSUES_AND_PRS: RepoIssueRecord[] = [
     category: 'ncm-reasoning',
     title: 'Establish canonical x8D Omni Diffusion Language Model definition and integrated algorithm contract',
     takeaway:
-      'Unifies conflicting README, script, and issue descriptions into one authoritative mathematical & container contract.',
+      'Unifies conflicting README, script, and issue descriptions and reconciles the outdated fixed-8x8 assumption.',
     impactOn50MPlan:
-      'Aligns every file around 0..255 raw byte I/O, NCM-in-loop S1/S2 execution, Codec 0x01/0x03 .x8D packing, and direct f.seek/read.',
+      'Explicitly separates 4 orthogonal layers: (1) 0..255 byte I/O, (2) trainable internal representation, (3) weight compression codec, and (4) S1/S2 scheduling.',
     proposedSolution:
-      'Publish `ARCHITECTURE_CONTRACT.md` enforcing `vocab=256`, `byte*0.001` external quanta, Codec 0x01/0x03 binary frames, direct `f.seek/read`, and `model.x8D` + `memory.x8D` split.',
+      'Amend #63 ARCHITECTURE_CONTRACT.md to drop mandatory 8x8 phrasing, separate projected targets from measured results, and lock vocab=256 + f.seek/read + dual .x8D files.',
   },
   {
     number: 62,
@@ -611,10 +611,10 @@ export interface FrontierComparisonRow {
 export const SUB_1_BIT_COMPARISON: FrontierComparisonRow[] = [
   {
     method: 'x8D Unified (Codec 0x01 + 0x03)',
-    targetBpw: '0.008 – 0.50 bpw (0.001 B/w)',
+    targetBpw: '0.008 bpw target (0.001 B/w)',
     mechanism: 'Hadamard channel outlier scaling + Kronecker factorization + 0.000–0.255 coordinates + x8d_arith range coding',
-    executionStrategy: 'Direct f.seek / f.read span streaming into L1/L2 CPU tiles (zero mmap, <1 GB RAM @ 1T)',
-    tradeoffVsX8D: 'Hits ~2,000x disk shrink (~957 MB @ 1T); requires Kronecker/Hadamard factorization rather than #57 block-mean.',
+    executionStrategy: 'Direct f.seek / f.read span streaming into L1/L2 CPU tiles (zero mmap; projected <1 GB RAM @ 1T)',
+    tradeoffVsX8D: 'Architectural target (~957 MB projected @ 1T); micro-matrix & Codec 0x01 measured locally, pending full 50M/1B checkpoint PPL eval.',
     isX8D: true,
   },
   {
@@ -748,13 +748,13 @@ export const TRAINING_ROADMAP: TrainingPhase[] = [
   },
   {
     phase: 'Phase 2',
-    title: 'Adaptive Entropy Routing & Causal Latent Ablation',
+    title: 'Adaptive Representation Ablations & Causal Latent Verification',
     objective:
-      'Enable entropy-gated Iter-1 S1 bypass (#64), causal latent perturbation tests (#65), and PR #74 deterministic Fraction host tool calls.',
+      'Compare adaptive entropy chunks, learned NCM concepts, and KDA state vs. fixed 8x8 baseline (#64/#65) plus PR #74 deterministic Fraction host tool calls.',
     datasetSlice: 'Multi-embodiment manipulation + Sudoku constraints + GSM8K reasoning',
     memoryAndComputeStrategy:
-      'Skip >65% low-entropy blocks after Iter 1; run gradient/activation checkpointing per AttnRes block.',
-    exitGate: 'Causal ablation proves >= 15% degradation when latent carry is perturbed; >= 5x speedup vs 48-step diffusion.',
+      'Skip low-entropy spans after Iter 1; run matched-FLOP ablations & gradient checkpointing per AttnRes block.',
+    exitGate: 'Causal ablation proves >= 15% degradation when latent carry is perturbed; measure real tokens/s vs 48-step baseline (no unverified speedup claims).',
   },
   {
     phase: 'Phase 3',

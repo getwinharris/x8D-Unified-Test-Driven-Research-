@@ -5,8 +5,41 @@ export type SystemTaskMode =
   | 'reasoning-math'
   | 'omni-multimodal';
 
+export type InternalRepresentationId =
+  | 'adaptive-entropy-chunks'
+  | 'ncm-concept-hierarchy'
+  | 'kda-recurrent-state'
+  | 'fixed-8x8-baseline';
+
+export const REPRESENTATION_OPTIONS: Record<
+  InternalRepresentationId,
+  { label: string; status: 'CANDIDATE_EXPERIMENT' | 'HISTORICAL_BASELINE'; summary: string }
+> = {
+  'adaptive-entropy-chunks': {
+    label: 'Adaptive Entropy Chunks (Variable)',
+    status: 'CANDIDATE_EXPERIMENT',
+    summary: 'Splits raw 0..255 streams cleanly along local byte-entropy transitions (16–96B) without forcing an 8×8 box.',
+  },
+  'ncm-concept-hierarchy': {
+    label: 'Learned Concept Hierarchy (NCM)',
+    status: 'CANDIDATE_EXPERIMENT',
+    summary: 'Data-dependent semantic/structural concept grouping learned jointly in training (arXiv:2610.14162).',
+  },
+  'kda-recurrent-state': {
+    label: 'Recurrent KDA Matrix State',
+    status: 'CANDIDATE_EXPERIMENT',
+    summary: 'Fixed-size O(1) continuous associative memory streaming tokens without spatial patching.',
+  },
+  'fixed-8x8-baseline': {
+    label: 'Fixed 8×8 Grid (Historical Baseline)',
+    status: 'HISTORICAL_BASELINE',
+    summary: 'Legacy 64-byte DSpark/Issue #64 block grid kept strictly as a baseline control—never a mandatory x8D axiom.',
+  },
+};
+
 export interface UnifiedLoopConfig {
   taskMode: SystemTaskMode;
+  representationMode?: InternalRepresentationId;
   system1EntropyThreshold: number; // 0.15 .. 0.85 normalized entropy threshold for 1-step System 1 exit
   maxDiffusionIterations: number; // e.g. 4..32 for System 2 high-entropy blocks
   ncmCoarseLevels: number; // 2..4 levels inside x8D loop
@@ -93,7 +126,7 @@ export const SYSTEM_COMPARISON_MATRIX: SystemArchitectureComparison[] = [
     system2Role: 'Stays inside x8D NCM + Diffusion iterative loop only for high-entropy blocks',
     gameAndControlLatency: '1-step fast commit (~2–5 ms) with shared contextual priors',
     reasoningDepth: 'NCM coarse outline + Uni-LaDiR latent state + iterative fine pass',
-    modelAndMemoryCost: '1 unified .x8D binary image (50.5 KB @ 50M / ~957 MB @ 1T via f.seek/read, no mmap)',
+    modelAndMemoryCost: 'Target: 1 unified .x8D image (~50.5 KB @ 50M / ~957 MB @ 1T proj via f.seek/read, no mmap)',
     isOurHybrid: true,
   },
 ];
@@ -245,15 +278,35 @@ export function simulateUnifiedLoop(textPayload: string, config: UnifiedLoopConf
 
   const codecRes = encodeDecodeCodec01(rawBytes);
 
-  // Partition into x8D DSpark 8x8 blocks (64 bytes max each)
-  const blockSize = 64;
+  // Partition stream according to selected experimental internal representation
+  // (demotes fixed 8x8 to historical baseline rather than mandatory law)
+  const repMode: InternalRepresentationId = config.representationMode ?? 'adaptive-entropy-chunks';
   const blocks: ByteBlockAnalysis[] = [];
   let system1Blocks = 0;
   let system2Blocks = 0;
   let totalIters = 0;
 
-  for (let off = 0, idx = 0; off < totalBytes; off += blockSize, idx++) {
-    const slice = rawBytes.subarray(off, Math.min(totalBytes, off + blockSize));
+  let off = 0;
+  let idx = 0;
+  while (off < totalBytes) {
+    let chunkLen = 64;
+    if (repMode === 'adaptive-entropy-chunks') {
+      // Split at structural delimiters ('}', '\n', '<', '.', ';') or max 48-byte window
+      chunkLen = Math.min(48, totalBytes - off);
+      for (let k = 16; k < chunkLen; k++) {
+        const b = rawBytes[off + k];
+        if (b === 10 || b === 125 || b === 62 || b === 46) {
+          chunkLen = k + 1;
+          break;
+        }
+      }
+    } else if (repMode === 'ncm-concept-hierarchy') {
+      chunkLen = Math.min(80, totalBytes - off);
+    } else if (repMode === 'kda-recurrent-state') {
+      chunkLen = Math.min(96, totalBytes - off);
+    }
+    const slice = rawBytes.subarray(off, Math.min(totalBytes, off + chunkLen));
+    off += slice.length;
     const n = slice.length;
     const bCounts = new Uint32Array(256);
     for (let j = 0; j < n; j++) {
@@ -298,7 +351,7 @@ export function simulateUnifiedLoop(textPayload: string, config: UnifiedLoopConf
     }
 
     blocks.push({
-      blockIndex: idx,
+      blockIndex: idx++,
       byteCount: n,
       normalizedEntropy,
       routedSystem: isSystem1 ? 'system-1' : 'system-2',

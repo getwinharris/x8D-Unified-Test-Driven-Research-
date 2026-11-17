@@ -361,6 +361,11 @@ export const UnifiedArenaSection: React.FC = () => {
           </div>
 
           <div className="rounded border border-slate-200 bg-slate-50 p-3 text-xs font-mono space-y-1">
+            <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-700 pb-1 border-b border-slate-200">
+              <span data-testid="snake-food-coord">Food @({snakeState.food.x},{snakeState.food.y})</span>
+              <span>Reach: {snakeState.lastReachableCells} cells</span>
+              <span>Cycle-Breaks: {snakeState.loopBreaks}</span>
+            </div>
             {snakeState.lastDecision ? (
               <>
                 <div className="text-slate-900 font-semibold">
@@ -374,7 +379,7 @@ export const UnifiedArenaSection: React.FC = () => {
               </>
             ) : (
               <div className="text-slate-500 text-[11px]">
-                Click &quot;Step +1 Decision&quot; to run System 1 Iter-1 move inference using the same weights.
+                Dynamic PRNG food + anti-loop flood-fill active. Click &quot;Step +1&quot; or &quot;Auto&quot; (Reset picks a fresh food seed).
               </div>
             )}
           </div>

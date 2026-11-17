@@ -19,7 +19,7 @@ const PIPELINE_STAGES: StageDetail[] = [
     memoryFootprint: 'Unified 0..255 byte canvas',
     computeRole: 'Zero adapter bridge',
     detail:
-      'Streams language, game actions, audio PCM, and GR00T/LeRobot kinematics natively inside the exact same 0.000–0.255 quanta token domain (byte × 0.001, e.g., A=65 → 0.065) into 8×8 DSpark blocks.',
+      'Streams language, game actions, audio PCM, and GR00T/LeRobot kinematics natively inside the exact same 0.000–0.255 quanta token domain (byte × 0.001, e.g., A=65 → 0.065) into adaptive chunks, NCM concepts, or KDA recurrent spans.',
   },
   {
     id: 'ncm-in-loop',
@@ -86,8 +86,8 @@ export const ExecutiveSummarySection: React.FC = () => {
               <strong className="font-semibold text-slate-900">inside x8D&apos;s own denoising loop</strong> across language,
               game play, audio, and GR00T robotics in native <span className="font-mono text-sm text-slate-800">0.000–0.255</span> quanta—combining
               a fast 1-step <strong className="font-semibold text-slate-900">System 1 expert</strong> with iterative{' '}
-              <strong className="font-semibold text-slate-900">System 2 refinement</strong>, verified live against HuggingFace datasets
-              and packed into a single <span className="font-mono text-sm text-slate-800">.x8D</span> binary image.
+              <strong className="font-semibold text-slate-900">System 2 refinement</strong>, evaluated via side-by-side quantization, perplexity, and HuggingFace byte streams into a{' '}
+              <span className="font-mono text-sm text-slate-800">.x8D</span> container.
             </p>
           </div>
 
@@ -209,13 +209,13 @@ export const ExecutiveSummarySection: React.FC = () => {
         </div>
 
         <div className="p-4">
-          <div className="text-xs font-mono uppercase tracking-wider text-slate-500">True Sub-Bit Export</div>
+          <div className="text-xs font-mono uppercase tracking-wider text-slate-500">Sub-Bit Export Target</div>
           <div className="mt-1 flex items-baseline">
             <span className="text-2xl font-mono font-semibold tabular-nums text-slate-900">0.008</span>
             <span className="text-xs font-mono text-slate-500 ml-1.5">BITS / WEIGHT</span>
           </div>
           <div className="mt-1 text-xs font-mono text-emerald-700 tabular-nums">
-            ● {formatBytes(Math.ceil((ncm50mParams.totalParams * 0.008) / 8))} Kronecker+arith .x8D
+            ● {formatBytes(Math.ceil((ncm50mParams.totalParams * 0.008) / 8))} Target .x8D (Projected)
           </div>
         </div>
 

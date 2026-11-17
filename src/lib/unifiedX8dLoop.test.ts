@@ -47,4 +47,17 @@ test('Unified x8D NCM-Diffusion loop routes System 1 fast reflex faster than Sys
   assert.equal(hardMath.losslessRoundtripVerified, true);
   assert.ok(fastGame.avgIterationsPerBlock < hardMath.avgIterationsPerBlock);
   assert.ok(fastGame.speedupVsFullDiffusion > 5);
+
+  // Verify fixed 8x8 is only one baseline among 4 internal representations
+  for (const rep of ['adaptive-entropy-chunks', 'ncm-concept-hierarchy', 'kda-recurrent-state', 'fixed-8x8-baseline'] as const) {
+    const out = simulateUnifiedLoop(TASK_PRESET_SAMPLES['omni-multimodal'].sample, {
+      taskMode: 'omni-multimodal',
+      representationMode: rep,
+      system1EntropyThreshold: 0.65,
+      maxDiffusionIterations: 16,
+      ncmCoarseLevels: 3,
+    });
+    assert.equal(out.losslessRoundtripVerified, true);
+    assert.ok(out.totalBlocks >= 1);
+  }
 });

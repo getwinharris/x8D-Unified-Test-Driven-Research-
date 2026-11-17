@@ -470,6 +470,11 @@ export interface SnakeGameState {
   score: number;
   tick: number;
   alive: boolean;
+  rngState: number;
+  recentHeads: string[];
+  foodSpawnHistory: SnakePoint[];
+  loopBreaks: number;
+  lastReachableCells: number;
   lastDecision: SnakeDecisionStep | null;
 }
 
@@ -487,34 +492,62 @@ const OPPOSITE_DIR: Record<SnakeDir, SnakeDir> = {
   R: 'L',
 };
 
-function spawnDeterministicFood(gridSize: number, snake: SnakePoint[], tick: number): SnakePoint {
+function nextLcg(state: number): number {
+  return (Math.imul(state >>> 0, 1664525) + 1013904223) >>> 0;
+}
+
+function spawnDynamicFood(
+  gridSize: number,
+  snake: SnakePoint[],
+  rngState: number,
+  prevFood?: SnakePoint
+): { food: SnakePoint; nextRngState: number } {
   const occupied = new Set(snake.map((p) => `${p.x},${p.y}`));
   const free: SnakePoint[] = [];
   for (let y = 0; y < gridSize; y++) {
     for (let x = 0; x < gridSize; x++) {
-      if (!occupied.has(`${x},${y}`)) free.push({ x, y });
+      if (!occupied.has(`${x},${y}`)) {
+        free.push({ x, y });
+      }
     }
   }
-  if (free.length === 0) return { x: 0, y: 0 };
-  const idx = (tick * 7 + snake.length * 13 + 3) % free.length;
-  return free[idx];
+  if (free.length === 0) return { food: { x: 0, y: 0 }, nextRngState: rngState };
+
+  // Prefer cells not matching previous food coordinate so food jumps dynamically
+  const distinct = prevFood
+    ? free.filter((p) => p.x !== prevFood.x || p.y !== prevFood.y)
+    : free;
+  const pool = distinct.length > 0 ? distinct : free;
+  const nextRng = nextLcg(rngState ^ (snake.length * 2654435761));
+  const idx = nextRng % pool.length;
+  return { food: pool[idx], nextRngState: nextRng };
 }
 
-export function createInitialSnakeState(gridSize = 10): SnakeGameState {
+export function createInitialSnakeState(gridSize = 10, seed?: number): SnakeGameState {
   const mid = Math.floor(gridSize / 2);
   const snake: SnakePoint[] = [
     { x: mid, y: mid },
     { x: mid - 1, y: mid },
     { x: mid - 2, y: mid },
   ];
+  const initialSeed =
+    typeof seed === 'number'
+      ? seed >>> 0
+      : ((Date.now() ^ Math.floor(Math.random() * 0x7fffffff)) >>> 0) || 1337;
+  const { food, nextRngState } = spawnDynamicFood(gridSize, snake, initialSeed);
   return {
     gridSize,
     snake,
     dir: 'R',
-    food: { x: mid + 2, y: mid - 2 },
+    food,
     score: 0,
     tick: 0,
     alive: true,
+    rngState: nextRngState,
+    recentHeads: [`${mid},${mid}`],
+    foodSpawnHistory: [food],
+    loopBreaks: 0,
+    lastReachableCells: gridSize * gridSize - snake.length,
     lastDecision: null,
   };
 }
@@ -523,7 +556,7 @@ function floodFillFreeCount(
   start: SnakePoint,
   gridSize: number,
   bodySet: Set<string>,
-  limit = 36
+  limit = 100
 ): number {
   const visited = new Set<string>();
   const queue: SnakePoint[] = [start];
@@ -547,7 +580,7 @@ function floodFillFreeCount(
 
 /**
  * Serializes current Snake grid observation into native 0.000..0.255 byte quanta,
- * runs System 1 Iter-1 forward evaluation using the unified trained weights,
+ * runs System 1 Iter-1 forward evaluation with pocket-trap avoidance & cycle-breaking,
  * and advances exactly ONE decision tick.
  */
 export function stepSnakeUnifiedDecision(
@@ -570,33 +603,56 @@ export function stepSnakeUnifiedDecision(
 
   // Tail leaves on next step unless eating food, so ignore last segment for collision check
   const taillessSet = new Set(state.snake.slice(0, -1).map((p) => `${p.x},${p.y}`));
+  const totalBoardFree = Math.max(1, state.gridSize * state.gridSize - state.snake.length);
+  const currentDist = Math.abs(state.food.x - head.x) + Math.abs(state.food.y - head.y);
 
   let bestDir: SnakeDir = candidateDirs[0];
   let bestScore = -Infinity;
+  let bestReachable = 0;
+  let brokeLoopThisTick = false;
 
-  const currentDist = Math.abs(state.food.x - head.x) + Math.abs(state.food.y - head.y);
+  const recentSet = state.recentHeads.slice(-14);
 
   for (const d of candidateDirs) {
     const nx = head.x + DIR_DELTAS[d].x;
     const ny = head.y + DIR_DELTAS[d].y;
+    const key = `${nx},${ny}`;
     const outOfBounds = nx < 0 || nx >= state.gridSize || ny < 0 || ny >= state.gridSize;
-    const hitsBody = taillessSet.has(`${nx},${ny}`);
-    const dangerQuanta = outOfBounds || hitsBody ? 0.255 : 0.000;
+    const hitsBody = taillessSet.has(key);
+    const dangerQuanta = outOfBounds || hitsBody ? 0.255 : 0.0;
 
     const nextDist = Math.abs(state.food.x - nx) + Math.abs(state.food.y - ny);
-    const foodAlignQuanta = (currentDist - nextDist) * 0.220;
+    const foodAlignQuanta = (currentDist - nextDist) * 0.22;
 
-    const freeCells = outOfBounds || hitsBody ? 0 : floodFillFreeCount({ x: nx, y: ny }, state.gridSize, taillessSet);
-    const spaceQuanta = Math.min(0.255, (freeCells / 36) * 0.255);
+    const freeCells =
+      outOfBounds || hitsBody
+        ? 0
+        : floodFillFreeCount({ x: nx, y: ny }, state.gridSize, taillessSet, state.gridSize * state.gridSize);
+    const spaceQuanta = Math.min(0.255, (freeCells / totalBoardFree) * 0.255);
+
+    // Prevent entering closed dead-end pockets smaller than snake body
+    const pocketPenalty =
+      !outOfBounds && !hitsBody && freeCells < state.snake.length + 2 ? -6.5 : 0;
+
+    // Anti-oscillation / cycle breaker: penalize revisiting recent cells without making food progress
+    let repeatHits = 0;
+    for (const prevKey of recentSet) {
+      if (prevKey === key) repeatHits++;
+    }
+    const cyclePenalty = repeatHits > 0 ? -repeatHits * 0.45 : 0;
 
     const logit =
       weights.wSnake[0] * dangerQuanta * 8 +
       weights.wSnake[1] * foodAlignQuanta * 4 +
-      weights.wSnake[2] * spaceQuanta * 4;
+      weights.wSnake[2] * spaceQuanta * 4 +
+      pocketPenalty +
+      cyclePenalty;
 
     if (logit > bestScore) {
       bestScore = logit;
       bestDir = d;
+      bestReachable = freeCells;
+      brokeLoopThisTick = repeatHits === 0 && recentSet.length >= 6;
     }
   }
 
@@ -619,7 +675,19 @@ export function stepSnakeUnifiedDecision(
       : [nextHead, ...state.snake.slice(0, -1)]
     : state.snake;
   const nextScore = ateFood ? state.score + 1 : state.score;
-  const nextFood = ateFood ? spawnDeterministicFood(state.gridSize, nextSnake, nextTick) : state.food;
+
+  let nextFood = state.food;
+  let nextRngState = state.rngState;
+  const nextFoodHistory = state.foodSpawnHistory;
+  if (ateFood) {
+    const spawned = spawnDynamicFood(state.gridSize, nextSnake, state.rngState, state.food);
+    nextFood = spawned.food;
+    nextRngState = spawned.nextRngState;
+  }
+
+  const nextRecent = ateFood
+    ? [`${nextHead.x},${nextHead.y}`]
+    : [...state.recentHeads.slice(-17), `${nextHead.x},${nextHead.y}`];
 
   const actionByte = bestDir.charCodeAt(0); // U=85, D=68, L=76, R=82
   const actionQuanta = (actionByte * 0.001).toFixed(3);
@@ -632,6 +700,11 @@ export function stepSnakeUnifiedDecision(
     score: nextScore,
     tick: nextTick,
     alive: aliveAfter,
+    rngState: nextRngState,
+    recentHeads: nextRecent,
+    foodSpawnHistory: ateFood ? [...nextFoodHistory.slice(-12), nextFood] : nextFoodHistory,
+    loopBreaks: state.loopBreaks + (brokeLoopThisTick ? 1 : 0),
+    lastReachableCells: bestReachable,
     lastDecision: {
       tick: nextTick,
       action: bestDir,

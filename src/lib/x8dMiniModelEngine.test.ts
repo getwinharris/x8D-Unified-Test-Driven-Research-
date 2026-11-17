@@ -49,12 +49,19 @@ test('Trained unified model solves 9x9 Sudoku puzzles via NCM + Diffusion loop w
   }
 });
 
-test('Same trained model plays Snake decision-by-decision at System 1 Iter 1', () => {
+test('Same trained model plays Snake decision-by-decision at System 1 Iter 1 with dynamic food spawns', () => {
   const trained = trainMiniX8dModel(12);
-  let state = createInitialSnakeState(10);
+  let state = createInitialSnakeState(10, 424242);
+  const altReset = createInitialSnakeState(10, 919191);
+  assert.notEqual(
+    `${state.food.x},${state.food.y}`,
+    `${altReset.food.x},${altReset.food.y}`,
+    'Distinct seeds spawn food in different starting coordinates'
+  );
+
   let steps = 0;
   let maxScore = 0;
-  while (state.alive && steps < 45) {
+  while (state.alive && steps < 90) {
     state = stepSnakeUnifiedDecision(state, trained);
     assert.ok(state.lastDecision !== null);
     assert.equal(state.lastDecision.routedSystem, 'system-1');
@@ -62,8 +69,9 @@ test('Same trained model plays Snake decision-by-decision at System 1 Iter 1', (
     maxScore = Math.max(maxScore, state.score);
     steps++;
   }
-  assert.ok(state.alive, 'Trained unified model survives 45 Snake decision steps cleanly');
-  assert.ok(maxScore >= 1, `Expected snake to eat food using trained weights, got score=${maxScore}`);
+  assert.ok(state.alive, 'Trained unified model survives 90 Snake decision steps cleanly without deadlocks');
+  assert.ok(maxScore >= 3, `Expected snake to eat >=3 dynamic foods, got score=${maxScore}`);
+  assert.ok(state.foodSpawnHistory.length >= 4, 'Food spawns at new positions after each eat');
 });
 
 test('Prompt evaluator routes deterministic math, multi-clause GR00T, 1T-in-1GB RAM, and decodes 0.000..0.255 back to UTF-8', () => {
