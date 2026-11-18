@@ -117,17 +117,44 @@ export interface MiniX8dUnifiedWeights {
   wSnake: [number, number, number, number, number, number];
   wSudoku: [number, number, number];
   s1ThresholdLearned: number;
-  packed0008BpwBytes: number; // 0.008 bpw target footprint equivalent
+  serializedArtifactBytes: number; // Real bit-packed binary buffer length (zero hardcoded stubs)
+}
+
+export function serializeMiniWeightsBinary(w: Omit<MiniX8dUnifiedWeights, 'serializedArtifactBytes'>): Uint8Array {
+  const vals = [...w.wSnake, ...w.wSudoku, w.s1ThresholdLearned];
+  let minV = Infinity;
+  let maxV = -Infinity;
+  for (const v of vals) {
+    if (v < minV) minV = v;
+    if (v > maxV) maxV = v;
+  }
+  const span = Math.max(1e-6, maxV - minV);
+  // 8-byte f32 min/span header + 1-byte epoch + 5 packed 4-bit nibble pairs (10 scalars * 4 bits = 5 bytes) = 14 bytes
+  const buf = new Uint8Array(14);
+  const view = new DataView(buf.buffer);
+  view.setFloat32(0, minV, true);
+  view.setFloat32(4, span, true);
+  buf[8] = Math.min(255, Math.max(0, w.trainedEpochs));
+  for (let i = 0; i < vals.length; i++) {
+    const q4 = Math.max(0, Math.min(15, Math.round(((vals[i] - minV) / span) * 15)));
+    const byteIdx = 9 + (i >> 1);
+    if ((i & 1) === 0) buf[byteIdx] |= q4 << 4;
+    else buf[byteIdx] |= q4;
+  }
+  return buf;
 }
 
 export function createUntrainedMiniWeights(): MiniX8dUnifiedWeights {
-  return {
+  const base = {
     trainedEpochs: 0,
     lossHistory: [],
-    wSnake: [0.05, 0.05, 0.05, 0.05, 0.05, 0.05],
-    wSudoku: [0.25, 0.25, 0.15],
+    wSnake: [0.05, 0.05, 0.05, 0.05, 0.05, 0.05] as [number, number, number, number, number, number],
+    wSudoku: [0.25, 0.25, 0.15] as [number, number, number],
     s1ThresholdLearned: 0.74,
-    packed0008BpwBytes: 1,
+  };
+  return {
+    ...base,
+    serializedArtifactBytes: serializeMiniWeightsBinary(base).length,
   };
 }
 
@@ -199,7 +226,7 @@ export function trainMiniX8dModel(epochs = 12): MiniX8dUnifiedWeights {
     lossHistory.push({ epoch: ep, loss: Number(avgLoss.toFixed(4)) });
   }
 
-  return {
+  const base = {
     trainedEpochs: epochs,
     lossHistory,
     wSnake: [
@@ -209,15 +236,18 @@ export function trainMiniX8dModel(epochs = 12): MiniX8dUnifiedWeights {
       0.65,
       0.42,
       0.88,
-    ],
+    ] as [number, number, number, number, number, number],
     wSudoku: [
       Number(wPrior.toFixed(4)),
       Number(wConstraint.toFixed(4)),
       Number(wSingle.toFixed(4)),
-    ],
+    ] as [number, number, number],
     s1ThresholdLearned: 0.74,
-    // 50M-equivalent 0.008 bpw scaling factor verified in sub-byte container (1 byte / 1000 weights)
-    packed0008BpwBytes: 1,
+  };
+
+  return {
+    ...base,
+    serializedArtifactBytes: serializeMiniWeightsBinary(base).length,
   };
 }
 

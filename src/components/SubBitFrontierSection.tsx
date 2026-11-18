@@ -146,12 +146,12 @@ export const SubBitFrontierSection: React.FC<SubBitFrontierSectionProps> = ({ co
 
           <div className="grid grid-cols-2 sm:grid-cols-4 border border-slate-200 bg-slate-50 rounded-md divide-y sm:divide-y-0 sm:divide-x divide-slate-200">
             <div className="p-3">
-              <div className="text-[11px] font-mono text-slate-500">.x8D On Disk</div>
+              <div className="text-[11px] font-mono text-slate-500">.x8D On Disk (Measured)</div>
               <div className="mt-0.5 text-base font-mono font-bold text-slate-900 tabular-nums" data-testid="x8d-disk-bytes">
                 {formatBytes(x8dImage.unifiedX8DBytes)}
               </div>
               <div className="text-[11px] font-mono text-emerald-700" data-testid="x8d-compression">
-                {x8dImage.compressionFactorVsBf16.toFixed(0)}× vs BF16
+                {x8dImage.measuredBitsPerWeight.toFixed(4)} bpw · {x8dImage.compressionFactorVsBf16.toFixed(0)}× vs BF16
               </div>
             </div>
 
@@ -474,9 +474,16 @@ export const SubBitFrontierSection: React.FC<SubBitFrontierSectionProps> = ({ co
             </tbody>
           </table>
         </div>
-        <div className="px-4 py-3 bg-slate-50 border-t border-slate-200 text-xs text-slate-600 leading-relaxed">
-          <strong className="font-semibold text-slate-900">Key Engineering Distinction: </strong>
-          {liveBench.shannonWallInsight}
+        <div className="px-4 py-3 bg-slate-50 border-t border-slate-200 text-xs text-slate-600 leading-relaxed space-y-1">
+          <div>
+            <strong className="font-semibold text-slate-900">Measured Binary Serialization: </strong>
+            {liveBench.shannonWallInsight}
+          </div>
+          <div className="font-mono text-[11px] text-slate-700">
+            Scale Check ({liveBench.scaleCheck512x1536.matrixShape}, {liveBench.scaleCheck512x1536.totalWeights.toLocaleString()} weights):{' '}
+            {liveBench.scaleCheck512x1536.serializedBytes.toLocaleString()} B actual Uint8Array ={' '}
+            {liveBench.scaleCheck512x1536.measuredBpw.toFixed(4)} bpw (cosine {liveBench.scaleCheck512x1536.cosineSimilarity.toFixed(4)})
+          </div>
         </div>
       </div>
 

@@ -1,0 +1,80 @@
+{
+  "updatedAtIso": "2026-11-18T00:11:54.716Z",
+  "totalTrainBytes": 1221922,
+  "totalHeldOutBytes": 250905,
+  "totalRecords": 5377,
+  "domains": {
+    "groot_sim": {
+      "id": "groot_sim",
+      "label": "NVIDIA GR00T X-Embodiment Sim",
+      "sourceRepo": "nvidia/PhysicalAI-Robotics-GR00T-X-Embodiment-Sim",
+      "modality": "Bimanual & Humanoid Robotics (Parquet States/Actions)",
+      "recordsTrain": 2672,
+      "recordsHeldOut": 841,
+      "trainBytes": 559815,
+      "heldOutBytes": 175198,
+      "shardsDownloaded": 24,
+      "lastSamplePreview": "GR00T|env=bimanual_panda_gripper.Threading|task=pick the thread and insert it into the ring|ep=0|t=0.00|s=[-0.103,0.255,1.006,0.998,0.018,0."
+    },
+    "lerobot_control": {
+      "id": "lerobot_control",
+      "label": "LeRobot PushT & ALOHA Sim",
+      "sourceRepo": "lerobot/pusht + lerobot/aloha_sim_insertion_human",
+      "modality": "Continuous Visuomotor Control",
+      "recordsTrain": 450,
+      "recordsHeldOut": 50,
+      "trainBytes": 38952,
+      "heldOutBytes": 4329,
+      "shardsDownloaded": 5,
+      "lastSamplePreview": "LEROBOT|ds=pusht|ep=0|s=[222.000,97.000]|a=[233.000,71.000]|r=0.19"
+    },
+    "tinystories_prose": {
+      "id": "tinystories_prose",
+      "label": "TinyStories Prose",
+      "sourceRepo": "roneneldan/TinyStories",
+      "modality": "Natural Language Byte Stream",
+      "recordsTrain": 360,
+      "recordsHeldOut": 40,
+      "trainBytes": 259455,
+      "heldOutBytes": 28552,
+      "shardsDownloaded": 4,
+      "lastSamplePreview": "TEXT|One day, a little girl named Lily found a needle in her room. She knew it was difficult to play with it because it was sharp. Lily want"
+    },
+    "gsm8k_math": {
+      "id": "gsm8k_math",
+      "label": "OpenAI GSM8K",
+      "sourceRepo": "openai/gsm8k",
+      "modality": "Chain-of-Thought Arithmetic & Tool Steps",
+      "recordsTrain": 360,
+      "recordsHeldOut": 40,
+      "trainBytes": 199074,
+      "heldOutBytes": 21634,
+      "shardsDownloaded": 4,
+      "lastSamplePreview": "MATH|Q:Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altoge"
+    },
+    "humaneval_code": {
+      "id": "humaneval_code",
+      "label": "OpenAI HumanEval",
+      "sourceRepo": "openai/openai_humaneval",
+      "modality": "Python Synthesis & Unit Specifications",
+      "recordsTrain": 148,
+      "recordsHeldOut": 16,
+      "trainBytes": 93516,
+      "heldOutBytes": 13296,
+      "shardsDownloaded": 2,
+      "lastSamplePreview": "CODE|HumanEval/0 from typing import List def has_close_elements(numbers: List[float], threshold: float) -> bool: \"\"\" Check if in given list "
+    },
+    "sudoku_extreme": {
+      "id": "sudoku_extreme",
+      "label": "Sapient Sudoku-Extreme",
+      "sourceRepo": "sapientinc/sudoku-extreme",
+      "modality": "System-2 9x9 Constraint Reasoning",
+      "recordsTrain": 360,
+      "recordsHeldOut": 40,
+      "trainBytes": 71110,
+      "heldOutBytes": 7896,
+      "shardsDownloaded": 4,
+      "lastSamplePreview": "SUDOKU|puzzles4_forum_hardest_1905|q=5...27..9..41......1..5.3...92.6.8...5......66..7..29.8...7...2.......8...9..36..|a=5834271699741365282"
+    }
+  }
+}

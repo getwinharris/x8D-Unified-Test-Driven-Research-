@@ -35,6 +35,7 @@ test('Mini unified x8D model training decreases loss cleanly at 0.008 bpw', () =
   // Safe wall avoidance weight learns negative penalty for danger=0.255
   assert.ok(trained.wSnake[0] < 0, 'Collision danger weight converges negative');
   assert.ok(trained.wSnake[1] > 0, 'Food alignment weight converges positive');
+  assert.equal(trained.serializedArtifactBytes, 14);
 });
 
 test('Trained unified model solves 9x9 Sudoku puzzles via NCM + Diffusion loop with 0 conflicts', () => {

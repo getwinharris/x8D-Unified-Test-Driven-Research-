@@ -35,5 +35,9 @@ for (const r of report.rows) {
   );
 }
 
+console.log(
+  `\n512×1536 FFN Scale Check (${report.scaleCheck512x1536.totalWeights.toLocaleString()} weights): ` +
+    `${report.scaleCheck512x1536.serializedBytes} B Uint8Array -> ${report.scaleCheck512x1536.measuredBpw.toFixed(4)} bpw, cos=${report.scaleCheck512x1536.cosineSimilarity}`
+);
 console.log('\nStructural Insight:');
 console.log(report.shannonWallInsight);

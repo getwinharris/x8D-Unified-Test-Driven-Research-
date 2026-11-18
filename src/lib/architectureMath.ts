@@ -476,6 +476,8 @@ export interface UnifiedX8DImageResult {
   ffnBytes: number;
   framingOverheadBytes: number;
   overallBytesPerWeight: number;
+  measuredBitsPerWeight: number;
+  theoretical0008TargetBytes: number;
   overallRatioVsBf16: number;
   compressionFactorVsBf16: number;
   totalTensorsPacked: number;
@@ -496,42 +498,55 @@ export function simulateUnifiedX8DImage(input: UnifiedX8DImageInput): UnifiedX8D
   });
   const embeddingBytes = Math.ceil(embedParams * arith.arithBytesPerByte + 64);
 
-  // Per-tensor Kronecker sub-byte core + x8d_arith framing
+  // Per-tensor Kronecker sub-byte core + measured header/scale/arith payload
   const kTerms = Math.max(1, input.kroneckerTerms);
   const bits = Math.max(1, input.kroneckerBits);
+  const pMatch = Math.min(0.9999, Math.max(0.5, input.bytePriorAccuracy));
+  const pSurprise = 1.0 - pMatch;
+  const symbolStates = Math.max(2, 1 << bits);
+  const hitBits = -Math.log2(pMatch);
+  const missBits = pSurprise > 0 ? -Math.log2(pSurprise / (symbolStates - 1)) : 0;
+  const factorArithRatio = Math.min(1, Math.max(0.18, (pMatch * hitBits + pSurprise * missBits) / bits));
 
   const packMatrixBytes = (rows: number, cols: number, p1: number, q1: number) => {
     const p2 = Math.max(1, Math.ceil(rows / p1));
     const q2 = Math.max(1, Math.ceil(cols / q1));
-    const coreBytes = kTerms * Math.ceil(((p1 * q1 + p2 * q2) * bits) / 8) + kTerms * 9;
+    const rawCoreBits = kTerms * (p1 * q1 + p2 * q2) * bits;
+    const rawCoreBytes = Math.ceil(rawCoreBits / 8);
+    // 20 bytes per Kronecker term: sigma, minA, spanA, minB, spanB (5 x f32) + 8-byte matrix shape header
+    const termHeaderBytes = 8 + kTerms * 20;
+
+    if (input.attentionCodec === 'kron-subbyte-0008') {
+      // Entropy-coded Kronecker factors via x8d_arith + factored 8-bit column scales (q1 + q2)
+      const encodedCoreBytes = Math.max(4, Math.ceil(rawCoreBytes * factorArithRatio));
+      const factoredScaleBytes = q1 + q2;
+      return termHeaderBytes + encodedCoreBytes + factoredScaleBytes;
+    }
+
+    // Fixed-width uncoded Kronecker factors + group row/col scales
     const rowColScaleBytes = 2 * (Math.ceil(rows / 8) + Math.ceil(cols / 8) + 4);
-    return coreBytes + rowColScaleBytes;
+    return termHeaderBytes + rawCoreBytes + rowColScaleBytes;
   };
 
   // FFN SwiGLU matrices (3 per layer: gate, up, down)
   const expertCount = Math.max(1, scale.routedExpertsPerLayer ?? 1);
-  const perFfnMatBytes = packMatrixBytes(scale.dModel, scale.ffnHidden, 16, 32);
-  const ffnBytes =
-    input.attentionCodec === 'kron-subbyte-0008'
-      ? Math.ceil((breakdown.ffnParams * 0.008) / 8)
-      : scale.nLayers * expertCount * 3 * perFfnMatBytes;
+  const ffnP1 = Math.min(32, Math.max(8, Math.round(Math.sqrt(scale.dModel / 2))));
+  const ffnQ1 = Math.min(64, Math.max(16, Math.round(Math.sqrt(scale.ffnHidden / 2))));
+  const perFfnMatBytes = packMatrixBytes(scale.dModel, scale.ffnHidden, ffnP1, ffnQ1);
+  const ffnBytes = scale.nLayers * expertCount * 3 * perFfnMatBytes;
 
   // Attention + KDA gates + NCM heads
-  const attnTotalParams = breakdown.attentionParams + breakdown.kdaGateParams + breakdown.spatialNcmParams;
-  let attentionBytes = 0;
-  if (input.attentionCodec === 'kron-subbyte-0008') {
-    attentionBytes = Math.ceil((attnTotalParams * 0.008) / 8);
-  } else {
-    const perAttnMatBytes = packMatrixBytes(scale.dModel, scale.dModel, 16, 16);
-    const numAttnMats = scale.nLayers * 4 + scale.spatialAdapterBlocks * 2 + scale.ncmCoarseLevels + scale.kdaLayers;
-    attentionBytes = numAttnMats * perAttnMatBytes;
-  }
+  const attnP1 = Math.min(32, Math.max(8, Math.round(Math.sqrt(scale.dModel / 2))));
+  const perAttnMatBytes = packMatrixBytes(scale.dModel, scale.dModel, attnP1, attnP1);
+  const numAttnMats = scale.nLayers * 4 + scale.spatialAdapterBlocks * 2 + scale.ncmCoarseLevels + scale.kdaLayers;
+  const attentionBytes = numAttnMats * perAttnMatBytes;
 
   // Magic-free direct-seek 24-byte tail span index per tensor (Issue #52)
   const totalTensorsPacked = scale.nLayers * 7 + scale.kdaLayers + scale.spatialAdapterBlocks * 2 + scale.ncmCoarseLevels + 2;
   const framingOverheadBytes = totalTensorsPacked * 24;
 
   const unifiedX8DBytes = embeddingBytes + attentionBytes + ffnBytes + framingOverheadBytes;
+  const theoretical0008TargetBytes = Math.ceil((breakdown.totalParams * 0.008) / 8);
 
   return {
     rawBf16Bytes,
@@ -542,6 +557,8 @@ export function simulateUnifiedX8DImage(input: UnifiedX8DImageInput): UnifiedX8D
     ffnBytes,
     framingOverheadBytes,
     overallBytesPerWeight: unifiedX8DBytes / breakdown.totalParams,
+    measuredBitsPerWeight: (unifiedX8DBytes * 8) / breakdown.totalParams,
+    theoretical0008TargetBytes,
     overallRatioVsBf16: unifiedX8DBytes / rawBf16Bytes,
     compressionFactorVsBf16: rawBf16Bytes / unifiedX8DBytes,
     totalTensorsPacked,

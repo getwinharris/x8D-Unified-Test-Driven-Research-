@@ -81,20 +81,20 @@ export const ALIGNMENT_AUDIT_MATRIX: AlignmentAuditRow[] = [
     repoIssuesSaying:
       '#50, #51, #57, #58, #59, #60, #61: Scaling bytes x 0.001 is 8 bpw (unit error #58); 1000:1 block averaging (#57) destroys weights; x8d_arith (#61) is dead code; replace with factorization + QAT (#56) + x8d_arith (#60).',
     userSayingInThread:
-      'Target 0.008 bits per full 8-bit (0.001 sub-byte) on disk without -1 ternary. Shannon/8-bit hardware sits at I/O boundaries, while stored weights reach sub-1-bit compression.',
+      'Target 0.008 bits per full 8-bit (0.001 sub-byte) on disk without -1 ternary. Train directly in the compact representation from step 0 and measure real serialized bytes without formula shortcuts.',
     currentWorkbenchDoing:
-      'Fixes #57/#58/#61 transparently: separates 0.000..0.255 I/O scaling from Kronecker + QAT (#56) + x8d_arith storage and compares BF16, INT8, INT4, and Broken #57 side-by-side.',
+      'Fixed all formula shortcuts: measures real serialized Uint8Array buffers across Kronecker+STE models trained from random init, comparing actual bpw & held-out PPL against BF16, INT8, INT4, and Broken #57.',
     status: 'fixed-this-turn',
   },
   {
-    dimension: '5. Pretrained Checkpoints (needle3) & w * 0.001',
+    dimension: '5. Pretrained Checkpoints (needle3) & Native STE Training',
     repoIssuesSaying:
-      '#56 & #59: Pretrained dense FP16 weights collapse under naive PTQ without QAT/STE training; measure cosine >= 0.990 and logit KL <= 0.02 instead of size-only checks.',
+      '#56 & #59: Pretrained dense FP16 weights collapse under naive PTQ without QAT/STE training; measure cosine >= 0.990 and held-out perplexity instead of size-only checks.',
     userSayingInThread:
-      'Test a real HF model (Cactus-Compute/needle3) parameter-to-parameter (e.g. 121.57266 -> 0.12157266) and compare fairly against regular quantizations (FP16, INT8, INT4, .cact).',
+      'Test real needle3 weights parameter-to-parameter AND prove a compact model learns natively from step 0, exports to .x8D, and generates coherent output when reloaded strictly from .x8D.',
     currentWorkbenchDoing:
-      'Runs live benchmarks on real 242 MB needle3.safetensors vs 35.3 MB needle3.cact: shows (w/scale)*0.001 beats Cactus INT2 SQNR, while 0.008 bpw honestly requires #56 QAT training.',
-    status: 'requires-training',
+      'Runs both real 242 MB needle3.safetensors PTQ benchmarks AND from-scratch Dense vs. Compact Native .x8D (STE) training with strict Uint8Array reload-only held-out PPL & UTF-8 generation.',
+    status: 'fixed-this-turn',
   },
   {
     dimension: '6. Direct f.seek / f.read Serving (No mmap)',

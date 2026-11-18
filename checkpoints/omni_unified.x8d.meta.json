@@ -1,0 +1,83 @@
+{
+  "status": "completed",
+  "step": 320,
+  "targetSteps": 320,
+  "epochsApprox": 0.006,
+  "bytesProcessed": 7680,
+  "throughputBytesPerSec": 516,
+  "elapsedMs": 14871,
+  "currentTrainLoss": 3.1209,
+  "initialTrainLoss": 5.5452,
+  "lossHistory": [
+    {
+      "step": 0,
+      "trainLoss": 5.545,
+      "meanHeldOutPpl": 256
+    },
+    {
+      "step": 80,
+      "trainLoss": 3.5292,
+      "meanHeldOutPpl": 29.6
+    },
+    {
+      "step": 160,
+      "trainLoss": 3.0528,
+      "meanHeldOutPpl": 25.98
+    },
+    {
+      "step": 240,
+      "trainLoss": 3.5085,
+      "meanHeldOutPpl": 26.63
+    },
+    {
+      "step": 320,
+      "trainLoss": 3.1209,
+      "meanHeldOutPpl": 25.53
+    }
+  ],
+  "perDomainHeldOutPpl": {
+    "groot_sim": {
+      "initPpl": 256,
+      "currentPpl": 15.12,
+      "top1AccPct": 28.3
+    },
+    "lerobot_control": {
+      "initPpl": 256,
+      "currentPpl": 20.22,
+      "top1AccPct": 26.7
+    },
+    "tinystories_prose": {
+      "initPpl": 256,
+      "currentPpl": 25.99,
+      "top1AccPct": 16.7
+    },
+    "gsm8k_math": {
+      "initPpl": 256,
+      "currentPpl": 32.11,
+      "top1AccPct": 17.2
+    },
+    "humaneval_code": {
+      "initPpl": 256,
+      "currentPpl": 46.43,
+      "top1AccPct": 11.7
+    },
+    "sudoku_extreme": {
+      "initPpl": 256,
+      "currentPpl": 13.32,
+      "top1AccPct": 37.2
+    }
+  },
+  "expertUsagePct": [
+    33,
+    38,
+    17,
+    13
+  ],
+  "effectiveWeights": 730368,
+  "trainableDofs": 16384,
+  "fp16EquivalentBytes": 1460736,
+  "checkpointPath": "omni_unified.x8d",
+  "checkpointBytesOnDisk": 8888,
+  "achievedBpw": 0.0974,
+  "lastError": null
+}

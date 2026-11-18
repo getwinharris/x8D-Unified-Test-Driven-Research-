@@ -6,6 +6,8 @@ import { fileURLToPath } from 'url';
 import { GoogleGenAI, ThinkingLevel } from '@google/genai';
 import { runNeedle3RealBenchmark } from './src/lib/needle3BenchmarkEngine';
 import { NEEDLE3_TENSOR_SPECS, Needle3BenchmarkReport, Needle3TensorId } from './src/lib/needle3Types';
+import { fetchAllOmniDatasets, readOmniManifest } from './src/lib/omniDatasetIngestor';
+import { OmniUnifiedTrainer, inferFromDiskX8dOnly } from './src/lib/omniUnifiedTrainer';
 
 dotenv.config();
 
@@ -151,6 +153,83 @@ async function startServer() {
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed to fetch live HuggingFace dataset sample.';
       res.status(502).json({ error: msg });
+    }
+  });
+
+  // Live Real Multi-Modal Omni Training & Direct .x8D Disk Runtime
+  const omniTrainer = new OmniUnifiedTrainer();
+  let omniFetchState: { active: boolean; lastMessage: string; error: string | null } = {
+    active: false,
+    lastMessage: 'Idle',
+    error: null,
+  };
+
+  app.get('/api/omni/status', (_req, res) => {
+    const manifest = readOmniManifest();
+    res.json({
+      manifest,
+      training: omniTrainer.metrics,
+      fetching: omniFetchState,
+    });
+  });
+
+  app.post('/api/omni/fetch', async (req, res) => {
+    if (omniFetchState.active) {
+      res.status(409).json({ error: 'HuggingFace dataset ingestion is already running.' });
+      return;
+    }
+    const grootEnvs = Math.max(1, Math.min(6, Number(req.body?.grootEnvs ?? 6)));
+    const episodesPerEnv = Math.max(1, Math.min(6, Number(req.body?.episodesPerEnv ?? 4)));
+    const rowsPerDataset = Math.max(100, Math.min(600, Number(req.body?.rowsPerDataset ?? 400)));
+
+    omniFetchState = {
+      active: true,
+      lastMessage: 'Connecting to HuggingFace Hub & Datasets Server...',
+      error: null,
+    };
+
+    try {
+      const manifest = await fetchAllOmniDatasets(
+        { grootEnvs, episodesPerEnv, rowsPerDataset },
+        (msg) => {
+          omniFetchState.lastMessage = msg;
+        }
+      );
+      omniTrainer.refreshDatasetsFromDisk();
+      omniFetchState = {
+        active: false,
+        lastMessage: `Ready: ${(manifest.totalTrainBytes / 1024).toFixed(1)} KB train + ${(manifest.totalHeldOutBytes / 1024).toFixed(1)} KB held-out`,
+        error: null,
+      };
+      res.json({ manifest, training: omniTrainer.metrics, fetching: omniFetchState });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Dataset fetch failed';
+      omniFetchState = { active: false, lastMessage: 'Fetch failed', error: msg };
+      res.status(502).json({ error: msg });
+    }
+  });
+
+  app.post('/api/omni/train/start', (req, res) => {
+    const targetSteps = Math.max(80, Math.min(5000, Number(req.body?.targetSteps ?? omniTrainer.metrics.step + 320)));
+    const batchWindows = Math.max(8, Math.min(48, Number(req.body?.batchWindows ?? 24)));
+    omniTrainer.startBackgroundTraining(targetSteps, batchWindows);
+    res.json({ training: omniTrainer.metrics });
+  });
+
+  app.post('/api/omni/train/stop', (_req, res) => {
+    omniTrainer.stopBackgroundTraining(false);
+    res.json({ training: omniTrainer.metrics });
+  });
+
+  app.post('/api/omni/infer', (req, res) => {
+    const prompt = typeof req.body?.prompt === 'string' ? req.body.prompt : 'GR00T|env=';
+    const genBytes = Math.max(16, Math.min(120, Number(req.body?.genBytes ?? 48)));
+    try {
+      const result = inferFromDiskX8dOnly(prompt, genBytes);
+      res.json(result);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed reading .x8D checkpoint from disk';
+      res.status(400).json({ error: msg });
     }
   });
 
