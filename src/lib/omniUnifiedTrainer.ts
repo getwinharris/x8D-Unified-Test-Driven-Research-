@@ -2,11 +2,14 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  *
- * Unified 0.73M Effective-Param Compact-Native x8D Trainer & Direct f.seek/f.read Runtime.
- * - Domain: strictly 256 byte states (0..255 <-> 0.000..0.255), zero BPE, zero MASK, zero -1 ternary.
- * - Architecture: Kronecker E + Trunk + Trainable System-1/System-2 4-Expert Router + Kronecker Head.
- * - Trained natively in compact Kronecker STE space from step 0 over real HF Omni datasets on disk.
- * - Saved to magic-free .x8D file with 24-byte tail seek directory; served strictly via fs.openSync + fs.readSync.
+ * Unified 5.00M Effective-Weight (24,320 Compact DOFs) 256-State Byte-Diffusion + NCM Trainer
+ * Consumes unified Safetensors-equivalent .x8D v2 container (x8dContainerFormat.ts):
+ * - Domain: strictly 256 byte states (0..255 <-> 0.000..0.255), zero BPE, zero MASK=256, zero -1 ternary.
+ * - Architecture: Kronecker E + Trunk + Trainable 4-Expert System-1/System-2 Router + Kronecker Head.
+ * - Objective: Real 256-state uniform-byte-corruption denoising (Issue #54) + NCM multi-pass refinement (#64).
+ * - Storage: Shared layers encoded at 3-bit STE + x8d_arith (Codec 0x04), Experts at 2-bit STE + x8d_arith,
+ *   indexed in a magic-free 48-byte named tensor directory with per-span CRC32 checksums.
+ * - Inference: Reads strictly from .x8D v2 via fs.openSync + fs.readSync (zero mmap, zero master weights).
  */
 
 import fs from 'fs';
@@ -17,11 +20,22 @@ import {
   loadDomainSplitBytes,
   readOmniManifest,
 } from './omniDatasetIngestor';
+import {
+  X8dCodecId,
+  X8dDtypeId,
+  X8dSeekStats,
+  X8dTensorDirEntry,
+  readDirectoryWithFd,
+  readNamedTensorWithFd,
+  writeX8dV2Container,
+  x8dArithCompressBytes,
+  x8dArithDecompressBytes,
+} from './x8dContainerFormat';
 
 export const OMNI_CONTEXT_LEN = 8;
-export const OMNI_EMB_DIM = 32;
-export const OMNI_D_MODEL = OMNI_CONTEXT_LEN * OMNI_EMB_DIM; // 256
-export const OMNI_HIDDEN_EXP = 512;
+export const OMNI_EMB_DIM = 64;
+export const OMNI_D_MODEL = OMNI_CONTEXT_LEN * OMNI_EMB_DIM; // 512
+export const OMNI_HIDDEN_EXP = 2048;
 export const OMNI_VOCAB_SIZE = 256;
 export const OMNI_NUM_EXPERTS = 4;
 
@@ -34,6 +48,7 @@ export interface OmniKronMeta {
   q2: number;
   kTerms: number;
   sigma: number;
+  qBits: number;
 }
 
 export interface OmniKronLayer {
@@ -61,6 +76,8 @@ export interface OmniTrainingMetricsSnapshot {
   checkpointPath: string;
   checkpointBytesOnDisk: number;
   achievedBpw: number;
+  achievedDofBpb: number;
+  diffusionObjective: string;
   lastError: string | null;
 }
 
@@ -69,6 +86,9 @@ export interface OmniDiskInferResult {
   continuation: string;
   outputQuantaSample: string[];
   activeExpertsUsed: number[];
+  system1EarlyExits: number;
+  system2Refinements: number;
+  crcVerifiedCount: number;
   diskFileSizeBytes: number;
   diskBytesSeekRead: number;
   diskSeeksPerformed: number;
@@ -118,23 +138,38 @@ function steQuantizeVec(
   return { minV, span };
 }
 
-function pack4Bit(codes: Uint8Array, outBytes: Uint8Array, byteOffset: number): number {
-  const needed = Math.ceil(codes.length / 2);
-  for (let i = 0; i < needed; i++) {
-    const hi = codes[i * 2] & 0x0f;
-    const lo = i * 2 + 1 < codes.length ? codes[i * 2 + 1] & 0x0f : 0;
-    outBytes[byteOffset + i] = (hi << 4) | lo;
-  }
-  return byteOffset + needed;
-}
-
-function unpack4Bit(inBytes: Uint8Array, byteOffset: number, count: number): Uint8Array {
-  const out = new Uint8Array(count);
-  for (let i = 0; i < count; i++) {
-    const b = inBytes[byteOffset + (i >> 1)];
-    out[i] = (i & 1) === 0 ? (b >> 4) & 0x0f : b & 0x0f;
+function packNBits(codes: Uint8Array, qBits: number): Uint8Array {
+  const totalBits = codes.length * qBits;
+  const out = new Uint8Array(Math.ceil(totalBits / 8));
+  let bitPos = 0;
+  const mask = (1 << qBits) - 1;
+  for (let i = 0; i < codes.length; i++) {
+    const val = codes[i] & mask;
+    for (let b = 0; b < qBits; b++) {
+      if ((val & (1 << b)) !== 0) {
+        out[bitPos >> 3] |= 1 << (bitPos & 7);
+      }
+      bitPos++;
+    }
   }
   return out;
+}
+
+function unpackNBits(packed: Uint8Array, offset: number, count: number, qBits: number): { codes: Uint8Array; bytesRead: number } {
+  const codes = new Uint8Array(count);
+  const bytesRead = Math.ceil((count * qBits) / 8);
+  let bitPos = 0;
+  for (let i = 0; i < count; i++) {
+    let val = 0;
+    for (let b = 0; b < qBits; b++) {
+      if ((packed[offset + (bitPos >> 3)] & (1 << (bitPos & 7))) !== 0) {
+        val |= 1 << b;
+      }
+      bitPos++;
+    }
+    codes[i] = val;
+  }
+  return { codes, bytesRead };
 }
 
 function kronForward(
@@ -247,7 +282,6 @@ function evalEmbedSlot(
 ): void {
   const i1 = Math.floor(byteId / meta.p2);
   const i2 = byteId % meta.p2;
-  // Blend direct 0.000..0.255 quanta anchor on dim 0 so pure numeric scale aligns cleanly
   for (let j1 = 0; j1 < meta.q1; j1++) {
     for (let j2 = 0; j2 < meta.q2; j2++) {
       let s = 0;
@@ -259,26 +293,24 @@ function evalEmbedSlot(
   }
 }
 
-function serializeKronSpan(layer: OmniKronLayer, extraBias?: Float32Array): Uint8Array {
+function serializeKronArithPayload(layer: OmniKronLayer, extraBias?: Float32Array): Uint8Array {
   const { meta, A, B } = layer;
-  const headerBytes = 12 + meta.kTerms * 16 + (extraBias ? 8 : 0);
-  let payloadBytes = extraBias ? Math.ceil(extraBias.length / 2) : 0;
-  for (let k = 0; k < meta.kTerms; k++) {
-    payloadBytes += Math.ceil(A[k].length / 2) + Math.ceil(B[k].length / 2);
-  }
-  const buf = new Uint8Array(headerBytes + payloadBytes);
-  const view = new DataView(buf.buffer);
+  const qBits = meta.qBits;
+  const hdrLen = 16 + meta.kTerms * 16 + (extraBias ? 8 : 0);
+  const chunks: Uint8Array[] = [];
+
+  const hdr = new Uint8Array(hdrLen);
+  const view = new DataView(hdr.buffer);
   view.setUint16(0, meta.rows, true);
   view.setUint16(2, meta.cols, true);
-  buf[4] = meta.p1;
-  buf[5] = meta.q1;
-  buf[6] = meta.kTerms;
-  buf[7] = extraBias ? 1 : 0;
-  view.setFloat32(8, meta.sigma, true);
+  hdr[4] = meta.p1;
+  hdr[5] = meta.q1;
+  hdr[6] = meta.kTerms;
+  hdr[7] = qBits;
+  hdr[8] = extraBias ? 1 : 0;
+  view.setFloat32(12, meta.sigma, true);
 
-  let hdrCursor = 12;
-  let payCursor = headerBytes;
-
+  let hdrCursor = 16;
   if (extraBias) {
     const bCodes = new Uint8Array(extraBias.length);
     const dummy = new Float32Array(extraBias.length);
@@ -286,7 +318,7 @@ function serializeKronSpan(layer: OmniKronLayer, extraBias?: Float32Array): Uint
     view.setFloat32(hdrCursor, bm.minV, true);
     view.setFloat32(hdrCursor + 4, bm.span, true);
     hdrCursor += 8;
-    payCursor = pack4Bit(bCodes, buf, payCursor);
+    chunks.push(packNBits(bCodes, 4));
   }
 
   for (let k = 0; k < meta.kTerms; k++) {
@@ -294,21 +326,31 @@ function serializeKronSpan(layer: OmniKronLayer, extraBias?: Float32Array): Uint
     const cB = new Uint8Array(B[k].length);
     const dA = new Float32Array(A[k].length);
     const dB = new Float32Array(B[k].length);
-    const mA = steQuantizeVec(A[k], 4, dA, cA);
-    const mB = steQuantizeVec(B[k], 4, dB, cB);
+    const mA = steQuantizeVec(A[k], qBits, dA, cA);
+    const mB = steQuantizeVec(B[k], qBits, dB, cB);
     view.setFloat32(hdrCursor, mA.minV, true);
     view.setFloat32(hdrCursor + 4, mA.span, true);
     view.setFloat32(hdrCursor + 8, mB.minV, true);
     view.setFloat32(hdrCursor + 12, mB.span, true);
     hdrCursor += 16;
-    payCursor = pack4Bit(cA, buf, payCursor);
-    payCursor = pack4Bit(cB, buf, payCursor);
+    chunks.push(packNBits(cA, qBits), packNBits(cB, qBits));
   }
 
-  return buf;
+  const totalBody = chunks.reduce((s, c) => s + c.length, 0);
+  const body = new Uint8Array(totalBody);
+  let pos = 0;
+  for (const c of chunks) {
+    body.set(c, pos);
+    pos += c.length;
+  }
+  const arithBody = x8dArithCompressBytes(body);
+  const out = new Uint8Array(hdr.length + arithBody.length);
+  out.set(hdr, 0);
+  out.set(arithBody, hdr.length);
+  return out;
 }
 
-function deserializeKronSpan(buf: Uint8Array): {
+function deserializeKronArithPayload(buf: Uint8Array): {
   meta: OmniKronMeta;
   qA: Float32Array[];
   qB: Float32Array[];
@@ -320,8 +362,9 @@ function deserializeKronSpan(buf: Uint8Array): {
   const p1 = buf[4];
   const q1 = buf[5];
   const kTerms = buf[6];
-  const hasBias = buf[7] === 1;
-  const sigma = view.getFloat32(8, true);
+  const qBits = buf[7];
+  const hasBias = buf[8] === 1;
+  const sigma = view.getFloat32(12, true);
   const meta: OmniKronMeta = {
     rows,
     cols,
@@ -331,26 +374,31 @@ function deserializeKronSpan(buf: Uint8Array): {
     q2: Math.ceil(cols / q1),
     kTerms,
     sigma,
+    qBits,
   };
 
-  let hdrCursor = 12;
-  let payCursor = 12 + kTerms * 16 + (hasBias ? 8 : 0);
+  let hdrCursor = 16;
+  const hdrLen = 16 + kTerms * 16 + (hasBias ? 8 : 0);
+  const body = x8dArithDecompressBytes(buf.subarray(hdrLen));
+  let payCursor = 0;
 
   let bias: Float32Array | null = null;
   if (hasBias) {
     const bMin = view.getFloat32(hdrCursor, true);
     const bSpan = view.getFloat32(hdrCursor + 4, true);
     hdrCursor += 8;
-    const bCodes = unpack4Bit(buf, payCursor, cols);
-    payCursor += Math.ceil(cols / 2);
+    const { codes, bytesRead } = unpackNBits(body, payCursor, cols, 4);
+    payCursor += bytesRead;
     bias = new Float32Array(cols);
-    for (let i = 0; i < cols; i++) bias[i] = bMin + (bCodes[i] / 15) * bSpan;
+    for (let i = 0; i < cols; i++) bias[i] = bMin + (codes[i] / 15) * bSpan;
   }
 
   const lenA = meta.p1 * meta.q1;
   const lenB = meta.p2 * meta.q2;
+  const qMax = (1 << qBits) - 1;
   const qA: Float32Array[] = [];
   const qB: Float32Array[] = [];
+
   for (let k = 0; k < kTerms; k++) {
     const minA = view.getFloat32(hdrCursor, true);
     const spanA = view.getFloat32(hdrCursor + 4, true);
@@ -358,15 +406,15 @@ function deserializeKronSpan(buf: Uint8Array): {
     const spanB = view.getFloat32(hdrCursor + 12, true);
     hdrCursor += 16;
 
-    const cA = unpack4Bit(buf, payCursor, lenA);
-    payCursor += Math.ceil(lenA / 2);
-    const cB = unpack4Bit(buf, payCursor, lenB);
-    payCursor += Math.ceil(lenB / 2);
+    const uA = unpackNBits(body, payCursor, lenA, qBits);
+    payCursor += uA.bytesRead;
+    const uB = unpackNBits(body, payCursor, lenB, qBits);
+    payCursor += uB.bytesRead;
 
     const fA = new Float32Array(lenA);
     const fB = new Float32Array(lenB);
-    for (let i = 0; i < lenA; i++) fA[i] = minA + (cA[i] / 15) * spanA;
-    for (let i = 0; i < lenB; i++) fB[i] = minB + (cB[i] / 15) * spanB;
+    for (let i = 0; i < lenA; i++) fA[i] = minA + (uA.codes[i] / qMax) * spanA;
+    for (let i = 0; i < lenB; i++) fB[i] = minB + (uB.codes[i] / qMax) * spanB;
     qA.push(fA);
     qB.push(fB);
   }
@@ -374,30 +422,32 @@ function deserializeKronSpan(buf: Uint8Array): {
   return { meta, qA, qB, bias };
 }
 
-function serializeRouterSpan(routerW: Float32Array): Uint8Array {
+function serializeRouterArithPayload(routerW: Float32Array): Uint8Array {
   const codes = new Uint8Array(routerW.length);
   const dummy = new Float32Array(routerW.length);
-  const { minV, span } = steQuantizeVec(routerW, 4, dummy, codes);
-  const buf = new Uint8Array(12 + Math.ceil(codes.length / 2));
+  const { minV, span } = steQuantizeVec(routerW, 3, dummy, codes);
+  const packed = x8dArithCompressBytes(packNBits(codes, 3));
+  const buf = new Uint8Array(12 + packed.length);
   const view = new DataView(buf.buffer);
   view.setUint16(0, OMNI_D_MODEL, true);
   view.setUint16(2, OMNI_NUM_EXPERTS, true);
   view.setFloat32(4, minV, true);
   view.setFloat32(8, span, true);
-  pack4Bit(codes, buf, 12);
+  buf.set(packed, 12);
   return buf;
 }
 
-function deserializeRouterSpan(buf: Uint8Array): Float32Array {
+function deserializeRouterArithPayload(buf: Uint8Array): Float32Array {
   const view = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
   const rows = view.getUint16(0, true);
   const cols = view.getUint16(2, true);
   const minV = view.getFloat32(4, true);
   const span = view.getFloat32(8, true);
   const count = rows * cols;
-  const codes = unpack4Bit(buf, 12, count);
+  const raw = x8dArithDecompressBytes(buf.subarray(12));
+  const { codes } = unpackNBits(raw, 0, count, 3);
   const w = new Float32Array(count);
-  for (let i = 0; i < count; i++) w[i] = minV + (codes[i] / 15) * span;
+  for (let i = 0; i < count; i++) w[i] = minV + (codes[i] / 7) * span;
   return w;
 }
 
@@ -425,7 +475,7 @@ export class OmniUnifiedTrainer {
   private checkpointPath: string;
   private dataDir: string;
 
-  // Pre-allocated work buffers
+  // Pre-allocated CPU tile work buffers (sized for d_model=512, hidden_exp=2048, max p1*q2 = 2048)
   private xBuf = new Float32Array(OMNI_D_MODEL);
   private h1Pre = new Float32Array(OMNI_D_MODEL);
   private h1Act = new Float32Array(OMNI_D_MODEL);
@@ -441,15 +491,23 @@ export class OmniUnifiedTrainer {
   private gH1Pre = new Float32Array(OMNI_D_MODEL);
   private gX = new Float32Array(OMNI_D_MODEL);
   private gXTmp = new Float32Array(OMNI_D_MODEL);
-  private tmpT = new Float32Array(1024);
-  private tmpAG = new Float32Array(1024);
+  private tmpT = new Float32Array(2048);
+  private tmpAG = new Float32Array(2048);
 
   constructor(options?: { seed?: number; dataDir?: string; checkpointPath?: string }) {
-    this.rand = mulberry32(options?.seed ?? 20261117);
+    this.rand = mulberry32(options?.seed ?? 20261121);
     this.dataDir = options?.dataDir ?? getDefaultOmniDataDir();
     this.checkpointPath = options?.checkpointPath ?? getDefaultCheckpointPath();
 
-    const makeKron = (rows: number, cols: number, p1: number, q1: number, kTerms: number, sigma: number): OmniKronLayer => {
+    const makeKron = (
+      rows: number,
+      cols: number,
+      p1: number,
+      q1: number,
+      kTerms: number,
+      sigma: number,
+      qBits: number
+    ): OmniKronLayer => {
       const p2 = Math.ceil(rows / p1);
       const q2 = Math.ceil(cols / q1);
       const A: Float32Array[] = [];
@@ -466,19 +524,20 @@ export class OmniUnifiedTrainer {
         this.registerAdam(ak);
         this.registerAdam(bk);
       }
-      return { meta: { rows, cols, p1, q1, p2, q2, kTerms, sigma }, A, B };
+      return { meta: { rows, cols, p1, q1, p2, q2, kTerms, sigma, qBits }, A, B };
     };
 
-    this.E = makeKron(OMNI_VOCAB_SIZE, OMNI_EMB_DIM, 16, 8, 4, 0.45);
-    this.W1 = makeKron(OMNI_D_MODEL, OMNI_D_MODEL, 16, 16, 4, 0.22);
+    // 5.00M effective weights | 24,320 compact DOFs -> ~0.008–0.011 bpw real serialized .x8D v2 file
+    this.E = makeKron(OMNI_VOCAB_SIZE, OMNI_EMB_DIM, 16, 8, 2, 0.45, 3);
+    this.W1 = makeKron(OMNI_D_MODEL, OMNI_D_MODEL, 32, 16, 2, 0.22, 3);
     this.routerW = new Float32Array(OMNI_D_MODEL * OMNI_NUM_EXPERTS);
-    for (let i = 0; i < this.routerW.length; i++) this.routerW[i] = (this.rand() - 0.5) * 0.15;
+    for (let i = 0; i < this.routerW.length; i++) this.routerW[i] = (this.rand() - 0.5) * 0.14;
     this.registerAdam(this.routerW);
 
     this.experts = Array.from({ length: OMNI_NUM_EXPERTS }, () =>
-      makeKron(OMNI_D_MODEL, OMNI_HIDDEN_EXP, 16, 16, 3, 0.24)
+      makeKron(OMNI_D_MODEL, OMNI_HIDDEN_EXP, 32, 32, 2, 0.24, 2)
     );
-    this.Wout = makeKron(OMNI_HIDDEN_EXP, OMNI_VOCAB_SIZE, 16, 16, 4, 0.24);
+    this.Wout = makeKron(OMNI_HIDDEN_EXP, OMNI_VOCAB_SIZE, 32, 16, 2, 0.24, 3);
     this.bout = new Float32Array(OMNI_VOCAB_SIZE);
     this.registerAdam(this.bout);
 
@@ -512,6 +571,8 @@ export class OmniUnifiedTrainer {
       checkpointPath: path.basename(this.checkpointPath),
       checkpointBytesOnDisk: 0,
       achievedBpw: 0,
+      achievedDofBpb: 0,
+      diffusionObjective: '256-State Uniform Corruption + NCM S1/S2 Denoising',
       lastError: null,
     };
 
@@ -532,9 +593,9 @@ export class OmniUnifiedTrainer {
     if (!fs.existsSync(metaPath) || !fs.existsSync(this.checkpointPath)) return;
     try {
       const saved = JSON.parse(fs.readFileSync(metaPath, 'utf-8')) as Partial<OmniTrainingMetricsSnapshot>;
-      if (typeof saved.step === 'number' && saved.step > 0) {
+      if (typeof saved.step === 'number' && saved.step > 0 && saved.effectiveWeights === this.metrics.effectiveWeights) {
         if (!this.loadMasterStateIfPresent()) {
-          this.loadWeightsFromX8dFile(this.checkpointPath);
+          this.loadWeightsFromX8dV2File(this.checkpointPath);
         }
         this.metrics = {
           ...this.metrics,
@@ -544,7 +605,7 @@ export class OmniUnifiedTrainer {
         };
       }
     } catch {
-      // Ignore corrupt sidecar
+      // Ignore incompatible/old v1 sidecar cleanly so v2 initializes cleanly
     }
   }
 
@@ -593,38 +654,28 @@ export class OmniUnifiedTrainer {
     }
   }
 
-  private loadWeightsFromX8dFile(filePath: string): void {
+  private loadWeightsFromX8dV2File(filePath: string): void {
     const stat = fs.statSync(filePath);
     const fd = fs.openSync(filePath, 'r');
-    const readAt = (offset: number, length: number): Uint8Array => {
-      const buf = Buffer.allocUnsafe(length);
-      fs.readSync(fd, buf, 0, length, offset);
-      return new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
-    };
     try {
-      const hdr = readAt(0, 16);
-      const gv = new DataView(hdr.buffer, hdr.byteOffset, hdr.byteLength);
-      const numSpans = gv.getUint32(0, true);
-      if (numSpans !== 4 + OMNI_NUM_EXPERTS) return;
-      const tail = readAt(stat.size - numSpans * 24, numSpans * 24);
-      const tv = new DataView(tail.buffer, tail.byteOffset, tail.byteLength);
-      const spans: Array<{ offset: number; length: number }> = [];
-      for (let i = 0; i < numSpans; i++) {
-        spans.push({ offset: tv.getUint32(i * 24 + 4, true), length: tv.getUint32(i * 24 + 8, true) });
-      }
-      const copyKron = (target: OmniKronLayer, idx: number, biasOut?: Float32Array) => {
-        const sp = deserializeKronSpan(readAt(spans[idx].offset, spans[idx].length));
+      const dir = readDirectoryWithFd(fd, stat.size);
+      const byName = new Map(dir.entries.map((e) => [e.name, e]));
+      const copyKron = (target: OmniKronLayer, name: string, biasOut?: Float32Array) => {
+        const entry = byName.get(name);
+        if (!entry) return;
+        const sp = deserializeKronArithPayload(readNamedTensorWithFd(fd, entry));
         for (let k = 0; k < target.A.length; k++) {
           target.A[k].set(sp.qA[k]);
           target.B[k].set(sp.qB[k]);
         }
         if (biasOut && sp.bias) biasOut.set(sp.bias);
       };
-      copyKron(this.E, 0);
-      copyKron(this.W1, 1);
-      this.routerW.set(deserializeRouterSpan(readAt(spans[2].offset, spans[2].length)));
-      for (let e = 0; e < OMNI_NUM_EXPERTS; e++) copyKron(this.experts[e], 3 + e);
-      copyKron(this.Wout, numSpans - 1, this.bout);
+      copyKron(this.E, 'embed.E');
+      copyKron(this.W1, 'trunk.W1');
+      const rEntry = byName.get('router.W');
+      if (rEntry) this.routerW.set(deserializeRouterArithPayload(readNamedTensorWithFd(fd, rEntry)));
+      for (let e = 0; e < OMNI_NUM_EXPERTS; e++) copyKron(this.experts[e], `expert.${e}`);
+      copyKron(this.Wout, 'head.Wout', this.bout);
     } finally {
       fs.closeSync(fd);
     }
@@ -660,17 +711,17 @@ export class OmniUnifiedTrainer {
     const qLayer = (l: OmniKronLayer) => ({
       qA: l.A.map((a) => {
         const o = new Float32Array(a.length);
-        steQuantizeVec(a, 4, o);
+        steQuantizeVec(a, l.meta.qBits, o);
         return o;
       }),
       qB: l.B.map((b) => {
         const o = new Float32Array(b.length);
-        steQuantizeVec(b, 4, o);
+        steQuantizeVec(b, l.meta.qBits, o);
         return o;
       }),
     });
     const qRouter = new Float32Array(this.routerW.length);
-    steQuantizeVec(this.routerW, 4, qRouter);
+    steQuantizeVec(this.routerW, 3, qRouter);
     const qBout = new Float32Array(this.bout.length);
     steQuantizeVec(this.bout, 4, qBout);
     return {
@@ -687,57 +738,88 @@ export class OmniUnifiedTrainer {
     const dir = path.dirname(this.checkpointPath);
     fs.mkdirSync(dir, { recursive: true });
 
-    const spans: Uint8Array[] = [
-      serializeKronSpan(this.E),
-      serializeKronSpan(this.W1),
-      serializeRouterSpan(this.routerW),
-      ...this.experts.map((ex) => serializeKronSpan(ex)),
-      serializeKronSpan(this.Wout, this.bout),
+    const tensors = [
+      {
+        name: 'embed.E',
+        codecId: X8dCodecId.KRON_ARITH_Q3,
+        dtypeId: X8dDtypeId.Q3_ARITH_KRON,
+        rows: this.E.meta.rows,
+        cols: this.E.meta.cols,
+        p1: this.E.meta.p1,
+        q1: this.E.meta.q1,
+        kTerms: this.E.meta.kTerms,
+        hasBias: false,
+        payload: serializeKronArithPayload(this.E),
+      },
+      {
+        name: 'trunk.W1',
+        codecId: X8dCodecId.KRON_ARITH_Q3,
+        dtypeId: X8dDtypeId.Q3_ARITH_KRON,
+        rows: this.W1.meta.rows,
+        cols: this.W1.meta.cols,
+        p1: this.W1.meta.p1,
+        q1: this.W1.meta.q1,
+        kTerms: this.W1.meta.kTerms,
+        hasBias: false,
+        payload: serializeKronArithPayload(this.W1),
+      },
+      {
+        name: 'router.W',
+        codecId: X8dCodecId.KRON_ARITH_Q3,
+        dtypeId: X8dDtypeId.Q3_ARITH_KRON,
+        rows: OMNI_D_MODEL,
+        cols: OMNI_NUM_EXPERTS,
+        p1: 1,
+        q1: 1,
+        kTerms: 1,
+        hasBias: false,
+        payload: serializeRouterArithPayload(this.routerW),
+      },
+      ...this.experts.map((ex, idx) => ({
+        name: `expert.${idx}`,
+        codecId: X8dCodecId.KRON_Q2,
+        dtypeId: X8dDtypeId.Q2_KRON,
+        rows: ex.meta.rows,
+        cols: ex.meta.cols,
+        p1: ex.meta.p1,
+        q1: ex.meta.q1,
+        kTerms: ex.meta.kTerms,
+        hasBias: false,
+        payload: serializeKronArithPayload(ex),
+      })),
+      {
+        name: 'head.Wout',
+        codecId: X8dCodecId.KRON_ARITH_Q3,
+        dtypeId: X8dDtypeId.Q3_ARITH_KRON,
+        rows: this.Wout.meta.rows,
+        cols: this.Wout.meta.cols,
+        p1: this.Wout.meta.p1,
+        q1: this.Wout.meta.q1,
+        kTerms: this.Wout.meta.kTerms,
+        hasBias: true,
+        payload: serializeKronArithPayload(this.Wout, this.bout),
+      },
     ];
 
-    // Magic-free container: 16-byte global header + raw spans + 24-byte tail directory per span (Issue #52)
-    const globalHdr = new Uint8Array(16);
-    const gv = new DataView(globalHdr.buffer);
-    gv.setUint32(0, spans.length, true);
-    gv.setUint32(4, this.metrics.step, true);
-    gv.setUint32(8, this.metrics.effectiveWeights, true);
-    gv.setUint32(12, this.metrics.trainableDofs, true);
-
-    const tailDir = new Uint8Array(spans.length * 24);
-    const tv = new DataView(tailDir.buffer);
-    let offset = globalHdr.length;
-    for (let i = 0; i < spans.length; i++) {
-      tv.setUint32(i * 24, i, true);
-      tv.setUint32(i * 24 + 4, offset, true);
-      tv.setUint32(i * 24 + 8, spans[i].length, true);
-      tv.setUint32(i * 24 + 12, 0, true);
-      offset += spans[i].length;
-    }
-
-    const tmpPath = `${this.checkpointPath}.tmp`;
-    const fd = fs.openSync(tmpPath, 'w');
-    try {
-      fs.writeSync(fd, globalHdr);
-      for (const sp of spans) fs.writeSync(fd, sp);
-      fs.writeSync(fd, tailDir);
-    } finally {
-      fs.closeSync(fd);
-    }
-    fs.renameSync(tmpPath, this.checkpointPath);
-
-    const stat = fs.statSync(this.checkpointPath);
-    this.metrics.checkpointBytesOnDisk = stat.size;
-    this.metrics.achievedBpw = Number(((stat.size * 8) / this.metrics.effectiveWeights).toFixed(4));
+    const size = writeX8dV2Container(
+      this.checkpointPath,
+      this.metrics.step,
+      this.metrics.effectiveWeights,
+      tensors
+    );
+    this.metrics.checkpointBytesOnDisk = size;
+    this.metrics.achievedBpw = Number(((size * 8) / this.metrics.effectiveWeights).toFixed(4));
+    this.metrics.achievedDofBpb = Number(((size * 8) / this.metrics.trainableDofs).toFixed(3));
     this.saveMasterState();
     try {
       fs.writeFileSync(this.getMetaPath(), JSON.stringify(this.metrics, null, 2));
     } catch {
       // Non-fatal metadata write
     }
-    return stat.size;
+    return size;
   }
 
-  public evaluateHeldOutAllDomains(maxBytesPerDomain = 512): void {
+  public evaluateHeldOutAllDomains(maxBytesPerDomain = 220): void {
     const snap = this.quantizeSnapshot();
     const probs = new Float32Array(OMNI_VOCAB_SIZE);
     let pplSum = 0;
@@ -828,7 +910,12 @@ export class OmniUnifiedTrainer {
     }
   }
 
-  public runStepBatch(batchWindows = 24, lr = 0.045): number {
+  /**
+   * 256-State Uniform Corruption Denoising + Prompt-to-Output Step (Issue #54 & #56):
+   * Corrupts span positions using uniform random 0..255 bytes (no MASK=256 token!)
+   * at sampled noise levels {0.0, 0.25, 0.50} to train a true 256-state diffusion denoiser.
+   */
+  public runStepBatch(batchWindows = 16, lr = 0.045): number {
     if (this.activeDomains.length === 0) {
       if (!this.refreshDatasetsFromDisk()) {
         throw new Error('No omni dataset splits found on disk. Run dataset ingestion first.');
@@ -840,6 +927,7 @@ export class OmniUnifiedTrainer {
     const expCounts = [0, 0, 0, 0];
     let batchLoss = 0;
     const invB = 1 / batchWindows;
+    const windowBytes = new Uint8Array(OMNI_CONTEXT_LEN);
 
     for (let b = 0; b < batchWindows; b++) {
       const domId = this.activeDomains[(this.metrics.step * batchWindows + b) % this.activeDomains.length];
@@ -847,8 +935,21 @@ export class OmniUnifiedTrainer {
       const tPos = OMNI_CONTEXT_LEN + Math.floor(this.rand() * (buf.length - OMNI_CONTEXT_LEN - 1));
       const targetByte = buf[tPos];
 
+      // Sample 256-state uniform diffusion noise rate: 50% clean (t=0), 25% light (0.20), 25% noisy (0.40)
+      const uNoise = this.rand();
+      const noiseProb = uNoise < 0.5 ? 0.0 : uNoise < 0.75 ? 0.20 : 0.40;
+
       for (let s = 0; s < OMNI_CONTEXT_LEN; s++) {
-        evalEmbedSlot(snap.qE.qA, snap.qE.qB, this.E.meta, buf[tPos - OMNI_CONTEXT_LEN + s], this.xBuf, s * OMNI_EMB_DIM);
+        const cleanB = buf[tPos - OMNI_CONTEXT_LEN + s];
+        const useNoisy = s >= 2 && noiseProb > 0 && this.rand() < noiseProb;
+        const obsB = useNoisy ? Math.floor(this.rand() * 256) : cleanB;
+        windowBytes[s] = obsB;
+        evalEmbedSlot(snap.qE.qA, snap.qE.qB, this.E.meta, obsB, this.xBuf, s * OMNI_EMB_DIM);
+      }
+
+      // Inject continuous diffusion timestep signal (sigma) into first 8 dims
+      for (let c = 0; c < 8; c++) {
+        this.xBuf[c] += (noiseProb - 0.15) * 0.12;
       }
 
       kronForward(this.W1.meta, snap.qW1.qA, snap.qW1.qB, this.xBuf, this.h1Pre, this.tmpT);
@@ -858,7 +959,7 @@ export class OmniUnifiedTrainer {
         this.z1[c] = this.xBuf[c] + 0.5 * th;
       }
 
-      // Softmax router -> top-1 active expert
+      // Top-1 Expert Router
       let maxR = -Infinity;
       let chosenExp = 0;
       for (let e = 0; e < OMNI_NUM_EXPERTS; e++) {
@@ -934,7 +1035,6 @@ export class OmniUnifiedTrainer {
         this.tmpAG
       );
 
-      // Gentle load-balancing gradient on router logits so all 4 experts stay utilized
       const gRouter = this.adamState.get(this.routerW)!.g;
       let rSumE = 0;
       const rProbs = new Float32Array(OMNI_NUM_EXPERTS);
@@ -972,7 +1072,7 @@ export class OmniUnifiedTrainer {
 
       const { p2, q1, q2, sigma, kTerms } = this.E.meta;
       for (let s = 0; s < OMNI_CONTEXT_LEN; s++) {
-        const byteId = buf[tPos - OMNI_CONTEXT_LEN + s];
+        const byteId = windowBytes[s];
         const i1 = Math.floor(byteId / p2);
         const i2 = byteId % p2;
         const xOff = s * OMNI_EMB_DIM;
@@ -1031,19 +1131,19 @@ export class OmniUnifiedTrainer {
     return avgLoss;
   }
 
-  public trainSynchronously(totalSteps = 400, batchWindows = 32): OmniTrainingMetricsSnapshot {
+  public trainSynchronously(totalSteps = 280, batchWindows = 16): OmniTrainingMetricsSnapshot {
     if (!this.refreshDatasetsFromDisk()) {
       throw new Error('Omni datasets not found on disk. Run fetchAllOmniDatasets first.');
     }
     this.startedAtMs = Date.now();
     this.metrics.status = 'running';
     this.metrics.targetSteps = totalSteps;
-    this.evaluateHeldOutAllDomains(180);
+    this.evaluateHeldOutAllDomains(140);
 
     for (let s = 1; s <= totalSteps; s++) {
-      this.runStepBatch(batchWindows, 0.055);
-      if (s % 80 === 0 || s === totalSteps) {
-        this.evaluateHeldOutAllDomains(180);
+      this.runStepBatch(batchWindows, 0.05);
+      if (s % 70 === 0 || s === totalSteps) {
+        this.evaluateHeldOutAllDomains(140);
         this.saveCheckpointX8d();
       }
     }
@@ -1052,7 +1152,7 @@ export class OmniUnifiedTrainer {
     return this.metrics;
   }
 
-  public startBackgroundTraining(targetSteps = 1000, batchWindows = 32): void {
+  public startBackgroundTraining(targetSteps = 800, batchWindows = 16): void {
     if (this.timer) return;
     if (!this.refreshDatasetsFromDisk()) {
       this.metrics.status = 'error';
@@ -1061,21 +1161,21 @@ export class OmniUnifiedTrainer {
     }
     this.startedAtMs = Date.now() - this.metrics.elapsedMs;
     if (this.metrics.step === 0) {
-      this.evaluateHeldOutAllDomains(160);
+      this.evaluateHeldOutAllDomains(140);
     }
     this.metrics.status = 'running';
-    this.metrics.targetSteps = Math.max(targetSteps, this.metrics.step + 240);
+    this.metrics.targetSteps = Math.max(targetSteps, this.metrics.step + 200);
     this.metrics.lastError = null;
 
     const tick = () => {
       if (this.metrics.status !== 'running') return;
       try {
-        const chunk = 8;
+        const chunk = 6;
         for (let i = 0; i < chunk && this.metrics.step < this.metrics.targetSteps; i++) {
-          this.runStepBatch(batchWindows, 0.055);
+          this.runStepBatch(batchWindows, 0.04);
         }
-        if (this.metrics.step % 64 === 0 || this.metrics.step >= this.metrics.targetSteps) {
-          this.evaluateHeldOutAllDomains(160);
+        if (this.metrics.step % 60 === 0 || this.metrics.step >= this.metrics.targetSteps) {
+          this.evaluateHeldOutAllDomains(140);
           this.saveCheckpointX8d();
         }
         if (this.metrics.step >= this.metrics.targetSteps) {
@@ -1084,7 +1184,7 @@ export class OmniUnifiedTrainer {
           this.stopBackgroundTraining(true);
           return;
         }
-        this.timer = setTimeout(tick, 10);
+        this.timer = setTimeout(tick, 12);
       } catch (err: unknown) {
         this.metrics.status = 'error';
         this.metrics.lastError = err instanceof Error ? err.message : 'Training error';
@@ -1110,55 +1210,38 @@ export class OmniUnifiedTrainer {
 }
 
 /**
- * STRICT DIRECT-SEEK DISK RUNTIME (Zero mmap, zero JSON weights, zero training state):
- * Opens checkpointPath with fs.openSync('r'), seeks tail directory, seeks shared tensors + ONLY
- * the routed top-1 Expert span per generation step via fs.readSync.
+ * STRICT DIRECT-SEEK DISK RUNTIME (Zero mmap, zero JSON weights, zero master state):
+ * Reads Safetensors-equivalent .x8D v2 tail directory, verifies CRC32 per span,
+ * lazily seeks only routed Expert tensors, and executes 2-pass NCM System-1 / System-2
+ * 256-state byte diffusion refinement.
  */
 export function inferFromDiskX8dOnly(
   prompt: string,
-  genBytesLen = 48,
+  genBytesLen = 40,
   checkpointPath = getDefaultCheckpointPath()
 ): OmniDiskInferResult {
   if (!fs.existsSync(checkpointPath)) {
-    throw new Error('No .x8D checkpoint on disk yet. Run Omni training first.');
+    throw new Error('No .x8D v2 checkpoint on disk yet. Run Omni training first.');
   }
   const t0 = Date.now();
   const stat = fs.statSync(checkpointPath);
   const fd = fs.openSync(checkpointPath, 'r');
-  let diskBytesSeekRead = 0;
-  let diskSeeksPerformed = 0;
-
-  const readSpanAt = (offset: number, length: number): Uint8Array => {
-    const buf = Buffer.allocUnsafe(length);
-    fs.readSync(fd, buf, 0, length, offset);
-    diskBytesSeekRead += length;
-    diskSeeksPerformed++;
-    return new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
+  const seekStats: X8dSeekStats = {
+    diskSeeksPerformed: 0,
+    diskBytesSeekRead: 0,
+    crcVerifiedCount: 0,
   };
 
   try {
-    const globalHdr = readSpanAt(0, 16);
-    const gv = new DataView(globalHdr.buffer, globalHdr.byteOffset, globalHdr.byteLength);
-    const numSpans = gv.getUint32(0, true);
-    const tailOffset = stat.size - numSpans * 24;
-    const tailBuf = readSpanAt(tailOffset, numSpans * 24);
-    const tv = new DataView(tailBuf.buffer, tailBuf.byteOffset, tailBuf.byteLength);
+    const directory = readDirectoryWithFd(fd, stat.size, seekStats);
+    const byName = new Map<string, X8dTensorDirEntry>(directory.entries.map((e) => [e.name, e]));
 
-    const spanDir: Array<{ offset: number; length: number }> = [];
-    for (let i = 0; i < numSpans; i++) {
-      spanDir.push({
-        offset: tv.getUint32(i * 24 + 4, true),
-        length: tv.getUint32(i * 24 + 8, true),
-      });
-    }
+    const E = deserializeKronArithPayload(readNamedTensorWithFd(fd, byName.get('embed.E')!, seekStats));
+    const W1 = deserializeKronArithPayload(readNamedTensorWithFd(fd, byName.get('trunk.W1')!, seekStats));
+    const routerW = deserializeRouterArithPayload(readNamedTensorWithFd(fd, byName.get('router.W')!, seekStats));
+    const Wout = deserializeKronArithPayload(readNamedTensorWithFd(fd, byName.get('head.Wout')!, seekStats));
 
-    // Load ONLY shared spans [E, W1, Router, Wout] initially; Expert spans [3..6] loaded lazily via f.seek/f.read!
-    const E = deserializeKronSpan(readSpanAt(spanDir[0].offset, spanDir[0].length));
-    const W1 = deserializeKronSpan(readSpanAt(spanDir[1].offset, spanDir[1].length));
-    const routerW = deserializeRouterSpan(readSpanAt(spanDir[2].offset, spanDir[2].length));
-    const Wout = deserializeKronSpan(readSpanAt(spanDir[numSpans - 1].offset, spanDir[numSpans - 1].length));
-
-    const expertCache = new Map<number, ReturnType<typeof deserializeKronSpan>>();
+    const expertCache = new Map<number, ReturnType<typeof deserializeKronArithPayload>>();
     const activeExpertsUsed = new Set<number>();
 
     const seed = Array.from(new TextEncoder().encode(prompt));
@@ -1169,14 +1252,16 @@ export function inferFromDiskX8dOnly(
     const expOut = new Float32Array(OMNI_HIDDEN_EXP);
     const expAct = new Float32Array(OMNI_HIDDEN_EXP);
     const logits = new Float32Array(OMNI_VOCAB_SIZE);
-    const tmpT = new Float32Array(1024);
+    const tmpT = new Float32Array(2048);
 
-    for (let g = 0; g < genBytesLen; g++) {
-      const n = stream.length;
+    let system1EarlyExits = 0;
+    let system2Refinements = 0;
+
+    const evalStep = (contextWindow: number[], sigma: number) => {
       for (let s = 0; s < OMNI_CONTEXT_LEN; s++) {
-        const b = stream[n - OMNI_CONTEXT_LEN + s] ?? 32;
-        evalEmbedSlot(E.qA, E.qB, E.meta, b, xBuf, s * OMNI_EMB_DIM);
+        evalEmbedSlot(E.qA, E.qB, E.meta, contextWindow[s] ?? 32, xBuf, s * OMNI_EMB_DIM);
       }
+      for (let c = 0; c < 8; c++) xBuf[c] += (sigma - 0.15) * 0.12;
       kronForward(W1.meta, W1.qA, W1.qB, xBuf, h1Pre, tmpT);
       for (let c = 0; c < OMNI_D_MODEL; c++) z1[c] = xBuf[c] + 0.5 * Math.tanh(h1Pre[c]);
 
@@ -1194,8 +1279,8 @@ export function inferFromDiskX8dOnly(
 
       let exp = expertCache.get(bestExp);
       if (!exp) {
-        const sp = spanDir[3 + bestExp];
-        exp = deserializeKronSpan(readSpanAt(sp.offset, sp.length));
+        const expEntry = byName.get(`expert.${bestExp}`)!;
+        exp = deserializeKronArithPayload(readNamedTensorWithFd(fd, expEntry, seekStats));
         expertCache.set(bestExp, exp);
       }
 
@@ -1204,9 +1289,38 @@ export function inferFromDiskX8dOnly(
       kronForward(Wout.meta, Wout.qA, Wout.qB, expAct, logits, tmpT);
       if (Wout.bias) for (let v = 0; v < OMNI_VOCAB_SIZE; v++) logits[v] += Wout.bias[v];
 
+      let maxL = -Infinity;
       let bestByte = 0;
-      for (let v = 1; v < OMNI_VOCAB_SIZE; v++) if (logits[v] > logits[bestByte]) bestByte = v;
-      stream.push(bestByte);
+      for (let v = 0; v < OMNI_VOCAB_SIZE; v++) {
+        if (logits[v] > maxL) {
+          maxL = logits[v];
+          bestByte = v;
+        }
+      }
+      let sumE = 0;
+      for (let v = 0; v < OMNI_VOCAB_SIZE; v++) sumE += Math.exp(logits[v] - maxL);
+      const topConf = Math.exp(logits[bestByte] - maxL) / sumE;
+      return { bestByte, topConf };
+    };
+
+    // Pass 1 (NCM Coarse Draft + System 1 Early-Exit Gate) & Pass 2 (System 2 Denoise Refinement)
+    for (let g = 0; g < genBytesLen; g++) {
+      const n = stream.length;
+      const win: number[] = [];
+      for (let s = 0; s < OMNI_CONTEXT_LEN; s++) win.push(stream[n - OMNI_CONTEXT_LEN + s] ?? 32);
+
+      // Iter 1: coarse draft (sigma=0.20)
+      const iter1 = evalStep(win, 0.20);
+      if (iter1.topConf >= 0.22) {
+        system1EarlyExits++;
+        stream.push(iter1.bestByte);
+      } else {
+        // Iter 2: System 2 clean-state refinement with self-conditioning carry (sigma=0.0)
+        system2Refinements++;
+        const refinedWin = [...win.slice(1), iter1.bestByte];
+        const iter2 = evalStep(refinedWin, 0.0);
+        stream.push(iter2.bestByte);
+      }
     }
 
     const genBytes = new Uint8Array(stream.slice(seed.length));
@@ -1218,9 +1332,12 @@ export function inferFromDiskX8dOnly(
       continuation,
       outputQuantaSample,
       activeExpertsUsed: Array.from(activeExpertsUsed),
+      system1EarlyExits,
+      system2Refinements,
+      crcVerifiedCount: seekStats.crcVerifiedCount,
       diskFileSizeBytes: stat.size,
-      diskBytesSeekRead,
-      diskSeeksPerformed,
+      diskBytesSeekRead: seekStats.diskBytesSeekRead,
+      diskSeeksPerformed: seekStats.diskSeeksPerformed,
       latencyMs: Math.max(1, Date.now() - t0),
     };
   } finally {

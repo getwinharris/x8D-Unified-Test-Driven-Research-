@@ -1,37 +1,21 @@
 CODE|HumanEval/9
-from typing import List, Tuple
-
-
 def rolling_max(numbers: List[int]) -> List[int]:
     """ From a given list of integers, generate a list of rolling maximum element found until given moment
     in the sequence.
     >>> rolling_max([1, 2, 3, 2, 3, 4, 2])
     [1, 2, 3, 3, 3, 4, 4]
-    """
     running_max = None
-    result = []
-
-    for n in numbers:
         if running_max is None:
             running_max = n
-        else:
             running_max = max(running_max, n)
-
         result.append(running_max)
-
-    return result
-
 CODE|HumanEval/19
-from typing import List
-
-
 def sort_numbers(numbers: str) -> str:
     """ Input is a space-delimited string of numberals from 'zero' to 'nine'.
     Valid choices are 'zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight' and 'nine'.
     Return the string with numbers sorted from smallest to largest
     >>> sort_numbers('three one five')
     'one three five'
-    """
     value_map = {
         'zero': 0,
         'one': 1,
@@ -43,48 +27,27 @@ def sort_numbers(numbers: str) -> str:
         'seven': 7,
         'eight': 8,
         'nine': 9
-    }
     return ' '.join(sorted([x for x in numbers.split(' ') if x], key=lambda x: value_map[x]))
-
 CODE|HumanEval/29
-from typing import List
-
-
 def filter_by_prefix(strings: List[str], prefix: str) -> List[str]:
-    """ Filter an input list of strings only for ones that start with a given prefix.
     >>> filter_by_prefix([], 'a')
-    []
     >>> filter_by_prefix(['abc', 'bcd', 'cde', 'array'], 'a')
     ['abc', 'array']
-    """
     return [x for x in strings if x.startswith(prefix)]
-
 CODE|HumanEval/39
-
-
 def prime_fib(n: int):
-    """
     prime_fib returns n-th number that is a Fibonacci number and it's also prime.
     >>> prime_fib(1)
-    2
     >>> prime_fib(2)
-    3
     >>> prime_fib(3)
-    5
     >>> prime_fib(4)
     13
     >>> prime_fib(5)
     89
-    """
-    import math
-
     def is_prime(p):
         if p < 2:
-            return False
         for k in range(2, min(int(math.sqrt(p)) + 1, p - 1)):
             if p % k == 0:
-                return False
-        return True
     f = [0, 1]
     while True:
         f.append(f[-1] + f[-2])
@@ -92,200 +55,129 @@ def prime_fib(n: int):
             n -= 1
         if n == 0:
             return f[-1]
-
 CODE|HumanEval/49
-
-
 def modp(n: int, p: int):
     """Return 2^n modulo p (be aware of numerics).
     >>> modp(3, 5)
-    3
     >>> modp(1101, 101)
-    2
     >>> modp(0, 101)
-    1
     >>> modp(3, 11)
-    8
     >>> modp(100, 101)
-    1
-    """
     ret = 1
-    for i in range(n):
         ret = (2 * ret) % p
-    return ret
-
 CODE|HumanEval/59
-
-
 def largest_prime_factor(n: int):
     """Return the largest prime factor of n. Assume n > 1 and is not a prime.
     >>> largest_prime_factor(13195)
     29
     >>> largest_prime_factor(2048)
-    2
-    """
     def is_prime(k):
         if k < 2:
-            return False
         for i in range(2, k - 1):
             if k % i == 0:
-                return False
-        return True
     largest = 1
     for j in range(2, n + 1):
         if n % j == 0 and is_prime(j):
             largest = max(largest, j)
     return largest
-
 CODE|HumanEval/69
-
 def search(lst):
-    '''
     You are given a non-empty list of positive integers. Return the greatest integer that is greater than 
     zero, and has a frequency greater than or equal to the value of the integer itself. 
     The frequency of an integer is the number of times it appears in the list.
     If no such a value exist, return -1.
-    Examples:
         search([4, 1, 2, 2, 3, 1]) == 2
         search([1, 2, 2, 3, 3, 3, 4, 4, 4]) == 3
         search([5, 5, 4, 4, 4]) == -1
-    '''
     frq = [0] * (max(lst) + 1)
-    for i in lst:
         frq[i] += 1;
-
     ans = -1
     for i in range(1, len(frq)):
         if frq[i] >= i:
             ans = i
-    
-    return ans
-
 CODE|HumanEval/79
-
 def decimal_to_binary(decimal):
     """You will be given a number in decimal form and your task is to convert it to
     binary format. The function should return a string, with each character representing a binary
     number. Each character in the string will be '0' or '1'.
-
     There will be an extra couple of characters 'db' at the beginning and at the end of the string.
     The extra characters are there to help with the format.
-
-    Examples:
     decimal_to_binary(15)   # returns "db1111db"
     decimal_to_binary(32)   # returns "db100000db"
-    """
     return "db" + bin(decimal)[2:] + "db"
-
 CODE|HumanEval/89
-
 def encrypt(s):
     """Create a function encrypt that takes a string as an argument and
     returns a string encrypted with the alphabet being rotated. 
     The alphabet should be rotated in a manner such that the letters 
     shift down by two multiplied to two places.
-    For example:
     encrypt('hi') returns 'lm'
     encrypt('asdfghjkl') returns 'ewhjklnop'
     encrypt('gf') returns 'kj'
     encrypt('et') returns 'ix'
-    """
     d = 'abcdefghijklmnopqrstuvwxyz'
     out = ''
-    for c in s:
         if c in d:
             out += d[(d.index(c)+2*2) % 26]
-        else:
             out += c
     return out
-
 CODE|HumanEval/99
-
 def closest_integer(value):
-    '''
     Create a function that takes a value (string) representing a number
     and returns the closest integer to it. If the number is equidistant
     from two integers, round it away from zero.
-
-    Examples
     >>> closest_integer("10")
     10
     >>> closest_integer("15.3")
-    15
-
-    Note:
     Rounding away from zero means that if the given number is equidistant
     from two integers, the one you should return is the one that is the
     farthest from zero. For example closest_integer("14.5") should
     return 15 and closest_integer("-14.5") should return -15.
-    '''
     from math import floor, ceil
-
     if value.count('.') == 1:
         # remove trailing zeros
         while (value[-1] == '0'):
             value = value[:-1]
-
     num = float(value)
     if value[-2:] == '.5':
         if num > 0:
             res = ceil(num)
-        else:
             res = floor(num)
     elif len(value) > 0:
         res = int(round(num))
-    else:
         res = 0
-
-    return res
-
-
 CODE|HumanEval/109
-
 def move_one_ball(arr):
     """We have an array 'arr' of N integers arr[1], arr[2], ..., arr[N].The
     numbers in the array will be randomly ordered. Your task is to determine if
     it is possible to get an array sorted in non-decreasing order by performing 
     the following operation on the given array:
         You are allowed to perform right shift operation any number of times.
-    
     One right shift operation means shifting all elements of the array by one
     position in the right direction. The last element of the array will be moved to
     the starting position in the array i.e. 0th index. 
-
     If it is possible to obtain the sorted array by performing the above operation
     then return True else return False.
     If the given array is empty then return True.
-
     Note: The given list is guaranteed to have unique elements.
-
     For Example:
-    
     move_one_ball([3, 4, 5, 1, 2])==>True
     Explanation: By performin 2 right shift operations, non-decreasing order can
                  be achieved for the given array.
     move_one_ball([3, 5, 4, 1, 2])==>False
     Explanation:It is not possible to get non-decreasing order for the given
                 array by performing any number of right shift operations.
-                
-    """
     if len(arr)==0:
       return True
     sorted_array=sorted(arr)
     my_arr=[]
-    
     min_value=min(arr)
     min_index=arr.index(min_value)
     my_arr=arr[min_index:]+arr[0:min_index]
     for i in range(len(arr)):
       if my_arr[i]!=sorted_array[i]:
-        return False
-    return True
-
 CODE|HumanEval/119
-
 def match_parens(lst):
-    '''
     You are given a list of two strings, both strings consist of open
     parentheses '(' or close parentheses ')' only.
     Your job is to check if it is possible to concatenate the two strings in
@@ -294,34 +186,24 @@ def match_parens(lst):
     are balanced. For example: the string '(())()' is good, while the string
     '())' is not.
     Return 'Yes' if there's a way to make a good string, and return 'No' otherwise.
-
-    Examples:
     match_parens(['()(', ')']) == 'Yes'
     match_parens([')', ')']) == 'No'
-    '''
     def check(s):
         val = 0
         for i in s:
             if i == '(':
                 val = val + 1
-            else:
                 val = val - 1
             if val < 0:
-                return False
         return True if val == 0 else False
-
     S1 = lst[0] + lst[1]
     S2 = lst[1] + lst[0]
     return 'Yes' if check(S1) or check(S2) else 'No'
-
 CODE|HumanEval/129
-
 def minPath(grid, k):
-    """
     Given a grid with N rows and N columns (N >= 2) and a positive integer k, 
     each cell of the grid contains a value. Every integer in the range [1, N * N]
     inclusive appears exactly once on the cells of the grid.
-
     You have to find the minimum path of length k in the grid. You can start
     from any cell, and in each step you can move to any of the neighbor cells,
     in other words, you can go to cells which share an edge with you current
@@ -337,68 +219,43 @@ def minPath(grid, k):
     lst_A[j] = lst_B[j].
     It is guaranteed that the answer is unique.
     Return an ordered list of the values on the cells that the minimum path go through.
-
-    Examples:
-
         Input: grid = [ [1,2,3], [4,5,6], [7,8,9]], k = 3
         Output: [1, 2, 1]
-
         Input: grid = [ [5,9,3], [4,1,6], [7,8,2]], k = 1
         Output: [1]
-    """
     n = len(grid)
     val = n * n + 1
-    for i in range(n):
         for j in range(n):
             if grid[i][j] == 1:
                 temp = []
                 if i != 0:
                     temp.append(grid[i - 1][j])
-
                 if j != 0:
                     temp.append(grid[i][j - 1])
-
                 if i != n - 1:
                     temp.append(grid[i + 1][j])
-
                 if j != n - 1:
                     temp.append(grid[i][j + 1])
-
                 val = min(temp)
-
-    ans = []
     for i in range(k):
-        if i % 2 == 0:
             ans.append(1)
-        else:
             ans.append(val)
-    return ans
-
 CODE|HumanEval/139
-
 def special_factorial(n):
     """The Brazilian factorial is defined as:
     brazilian_factorial(n) = n! * (n-1)! * (n-2)! * ... * 1!
     where n > 0
-
-    For example:
     >>> special_factorial(4)
     288
-
     The function will receive an integer as input and should return the special
     factorial of this integer.
-    """
     fact_i = 1
     special_fact = 1
-    for i in range(1, n+1):
         fact_i *= i
         special_fact *= fact_i
     return special_fact
-
 CODE|HumanEval/149
-
 def sorted_list_sum(lst):
-    """Write a function that accepts a list of strings as a parameter,
     deletes the strings that have odd lengths from it,
     and returns the resulted list with a sorted order,
     The list is always a list of strings and never an array of numbers,
@@ -408,50 +265,34 @@ def sorted_list_sum(lst):
     If two words have the same length, sort the list alphabetically.
     The function should return a list of strings in sorted order.
     You may assume that all words will have the same length.
-    For example:
     assert list_sort(["aa", "a", "aaa"]) => ["aa"]
     assert list_sort(["ab", "a", "aaa", "cd"]) => ["ab", "cd"]
-    """
     lst.sort()
-    new_lst = []
-    for i in lst:
         if len(i)%2 == 0:
             new_lst.append(i)
     return sorted(new_lst, key=len)
-
 CODE|HumanEval/159
-
 def eat(number, need, remaining):
-    """
     You're a hungry rabbit, and you already have eaten a certain number of carrots,
     but now you need to eat more carrots to complete the day's meals.
     you should return an array of [ total number of eaten carrots after your meals,
                                     the number of carrots left after your meals ]
     if there are not enough remaining carrots, you will eat all remaining carrots, but will still be hungry.
-    
-    Example:
     * eat(5, 6, 10) -> [11, 4]
     * eat(4, 8, 9) -> [12, 1]
     * eat(1, 10, 10) -> [11, 0]
     * eat(2, 11, 5) -> [7, 0]
-    
-    Variables:
     @number : integer
         the number of carrots that you have eaten.
     @need : integer
         the number of carrots that you need to eat.
     @remaining : integer
         the number of remaining carrots thet exist in stock
-    
     Constrain:
     * 0 <= number <= 1000
     * 0 <= need <= 1000
     * 0 <= remaining <= 1000
-
     Have fun :)
-    """
     if(need <= remaining):
         return [ number + need , remaining-need ]
-    else:
         return [ number + remaining , 0]
-

@@ -56,7 +56,8 @@ export interface FootprintSimulationInput {
   contextBytes: number;
   activeLayerSpanRatio: number; // e.g. 0.15 for streaming 1-2 layers / active experts
   distributedNodes: number;
-  ncmCoarseBypassRate: number; // fraction of 8x8 blocks skipped at fine refinement (0..0.85)
+  ncmCoarseBypassRate: number; // fraction of variable spans skipped at fine refinement (0..0.85)
+  ncmConceptSpanBytes?: number; // adaptive multiscale concept span (no mandatory fixed 64B / 8x8 grid)
 }
 
 export interface FootprintSimulationResult {
@@ -246,17 +247,19 @@ export function simulateFootprint(input: FootprintSimulationInput): FootprintSim
   const kdaStateBytes = scale.kdaLayers * (scale.dModel * scale.dHead) * 2;
   const mlaCacheBytes =
     scale.mlaLayers * Math.ceil(input.contextBytes / 8) * Math.max(64, Math.floor(scale.dModel / 4)) * 2;
-  // NCM coarse-to-fine 8x8 block latent workspace
-  const ncmLatentGridBytes = Math.ceil(input.contextBytes / 64) * scale.dModel * 2;
+  // NCM multiscale adaptive concept workspace (configurable span, zero mandatory fixed 8x8 / 64B grid per #64)
+  const adaptiveConceptSpan = Math.max(16, input.ncmConceptSpanBytes ?? 128);
+  const ncmLatentGridBytes = Math.ceil(input.contextBytes / adaptiveConceptSpan) * scale.dModel * 2;
   const latentStateFileBytes = kdaStateBytes + mlaCacheBytes + ncmLatentGridBytes;
 
-  // Ephemeral ALU working tile DRAM needed to dequantize & execute one active layer/expert tile
+  // Ephemeral ALU working tile DRAM needed to dequantize & execute one active layer/expert span
   // For routed/Kronecker-banked 1T models, only activeExpertsPerToken slices enter tile SRAM/DRAM (not all 138)
   const activeExperts = Math.max(1, scale.activeExpertsPerToken ?? 1);
   const singleLayerWeightBytes =
     ((4 * scale.dModel * scale.dModel + activeExperts * 3 * scale.dModel * scale.ffnHidden) * 2) /
     (scale.routedExpertsPerLayer && scale.routedExpertsPerLayer > 1 ? 8 : 1);
-  const activationTileBytes = 64 * scale.dModel * 4; // 64-byte DSpark/8x8 block tile in FP32 accum
+  const executionTileSpan = Math.max(32, Math.min(256, adaptiveConceptSpan));
+  const activationTileBytes = executionTileSpan * scale.dModel * 4; // adaptive span tile in FP32 accum
   const peakAluTileDramBytes = singleLayerWeightBytes + activationTileBytes;
 
   const fullModelRamBytes = diskBytes + latentStateFileBytes + activationTileBytes;

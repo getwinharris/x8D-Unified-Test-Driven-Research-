@@ -7,7 +7,8 @@ import { GoogleGenAI, ThinkingLevel } from '@google/genai';
 import { runNeedle3RealBenchmark } from './src/lib/needle3BenchmarkEngine';
 import { NEEDLE3_TENSOR_SPECS, Needle3BenchmarkReport, Needle3TensorId } from './src/lib/needle3Types';
 import { fetchAllOmniDatasets, readOmniManifest } from './src/lib/omniDatasetIngestor';
-import { OmniUnifiedTrainer, inferFromDiskX8dOnly } from './src/lib/omniUnifiedTrainer';
+import { OmniUnifiedTrainer, getDefaultCheckpointPath, inferFromDiskX8dOnly } from './src/lib/omniUnifiedTrainer';
+import { inspectX8dV2Directory } from './src/lib/x8dContainerFormat';
 
 dotenv.config();
 
@@ -166,10 +167,20 @@ async function startServer() {
 
   app.get('/api/omni/status', (_req, res) => {
     const manifest = readOmniManifest();
+    const ckptPath = getDefaultCheckpointPath();
+    let containerDirectory = null;
+    if (fs.existsSync(ckptPath)) {
+      try {
+        containerDirectory = inspectX8dV2Directory(ckptPath);
+      } catch {
+        containerDirectory = null;
+      }
+    }
     res.json({
       manifest,
       training: omniTrainer.metrics,
       fetching: omniFetchState,
+      containerDirectory,
     });
   });
 

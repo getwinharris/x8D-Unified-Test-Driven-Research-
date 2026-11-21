@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Cpu, Database, Download, HardDrive, Play, RotateCcw, Square, StepForward, Zap } from 'lucide-react';
 import type { OmniDatasetManifest, OmniDomainId } from '../lib/omniDatasetIngestor';
 import type { OmniDiskInferResult, OmniTrainingMetricsSnapshot } from '../lib/omniUnifiedTrainer';
+import type { X8dContainerDirectory } from '../lib/x8dContainerFormat';
 import {
   MiniX8dUnifiedWeights,
   QaPromptTestResult,
@@ -20,6 +21,21 @@ import {
   NativeCompactExperimentReport,
   runNativeCompactTrainingExperiment,
 } from '../lib/nativeCompactTrainEngine';
+
+function formatCodecLabel(codecId: number): string {
+  switch (codecId) {
+    case 1:
+      return 'raw_quanta_u8 (0x01)';
+    case 2:
+      return 'kron_q2+arith (0x02)';
+    case 3:
+      return 'kron_q4 (0x03)';
+    case 4:
+      return 'kron_arith_q3 (0x04)';
+    default:
+      return `codec_${codecId}`;
+  }
+}
 
 export const UnifiedArenaSection: React.FC = () => {
   const [compareText, setCompareText] = useState<string>(
@@ -48,6 +64,7 @@ export const UnifiedArenaSection: React.FC = () => {
   // Live Full-Corpus Server Omni Training & Strict fs.readSync .x8D Runtime State
   const [omniManifest, setOmniManifest] = useState<OmniDatasetManifest | null>(null);
   const [omniTraining, setOmniTraining] = useState<OmniTrainingMetricsSnapshot | null>(null);
+  const [omniContainer, setOmniContainer] = useState<X8dContainerDirectory | null>(null);
   const [omniFetching, setOmniFetching] = useState<{ active: boolean; lastMessage: string; error: string | null }>({
     active: false,
     lastMessage: 'Idle',
@@ -66,10 +83,12 @@ export const UnifiedArenaSection: React.FC = () => {
         manifest: OmniDatasetManifest | null;
         training: OmniTrainingMetricsSnapshot;
         fetching: { active: boolean; lastMessage: string; error: string | null };
+        containerDirectory?: X8dContainerDirectory | null;
       };
       setOmniManifest(data.manifest);
       setOmniTraining(data.training);
       setOmniFetching(data.fetching);
+      setOmniContainer(data.containerDirectory ?? null);
     } catch {
       // Transient fetch error ignored during poll
     }
@@ -749,14 +768,21 @@ export const UnifiedArenaSection: React.FC = () => {
             <div className="flex flex-wrap items-center gap-2">
               <Database className="w-4 h-4 text-blue-700 shrink-0" />
               <h3 className="text-sm font-semibold text-slate-900">
-                Live Full-Corpus Unified Omni Training (GR00T + LeRobot + TinyStories + GSM8K + HumanEval + Sudoku)
+                Live Full-Corpus Unified Omni Diffusion + NCM Training (GR00T + LeRobot + TinyStories + GSM8K + HumanEval + Sudoku)
               </h3>
             </div>
             <p className="text-xs text-slate-600 leading-relaxed">
-              Trains ONE <span className="font-mono text-slate-800">730,368</span>-weight unified Kronecker-MoE STE model (
-              <span className="font-mono text-slate-800">16,384</span> compact factor DOFs, 4 routed experts, 0.000–0.255
-              byte vocabulary) directly on downloaded HuggingFace shards on disk, writes magic-free{' '}
-              <span className="font-mono text-slate-800">omni_unified.x8d</span>, and queries it strictly via{' '}
+              Trains ONE{' '}
+              <span className="font-mono text-slate-800">
+                {(omniTraining?.effectiveWeights ?? 4_999_168).toLocaleString()}
+              </span>{' '}
+              (5.00M) nominal-weight unified Kronecker-MoE 256-state uniform-corruption diffusion model (
+              <span className="font-mono text-slate-800">
+                {(omniTraining?.trainableDofs ?? 24_320).toLocaleString()}
+              </span>{' '}
+              independent factor DOFs, 4 routed experts, System-1/System-2 NCM early-exit loop, zero <span className="font-mono">MASK=256</span>)
+              directly on decontaminated HuggingFace shards on disk, writes a Safetensors-equivalent magic-free{' '}
+              <span className="font-mono text-slate-800">.x8D v2</span> container (<span className="font-mono">x8d_arith</span> + 2/3-bit STE + CRC32), and executes strictly via{' '}
               <span className="font-mono text-slate-800">fs.openSync + fs.readSync</span> (no <span className="font-mono">mmap</span>).
             </p>
           </div>
@@ -847,19 +873,23 @@ export const UnifiedArenaSection: React.FC = () => {
             </div>
 
             <div className="rounded border border-slate-200 bg-slate-50 p-3">
-              <div className="font-mono text-[10px] uppercase tracking-wider text-slate-500">Corpus on Disk</div>
+              <div className="font-mono text-[10px] uppercase tracking-wider text-slate-500">Corpus &amp; #69 Dedup</div>
               <div className="mt-1 font-mono text-sm font-bold text-slate-900 tabular-nums" data-testid="omni-corpus-bytes">
                 {omniManifest
                   ? `${((omniManifest.totalTrainBytes + omniManifest.totalHeldOutBytes) / 1024).toFixed(1)} KB`
                   : 'Not fetched'}
               </div>
-              <div className="mt-0.5 font-mono text-[11px] text-slate-600 tabular-nums">
-                {omniManifest ? `${omniManifest.totalRecords.toLocaleString()} records` : omniFetching.lastMessage}
+              <div className="mt-0.5 font-mono text-[11px] text-slate-600 tabular-nums" data-testid="omni-dedup-status">
+                {omniManifest?.dedupStats
+                  ? `${omniManifest.dedupStats.residualShingleOverlapPct.toFixed(2)}% 24B overlap · -${omniManifest.dedupStats.exactDuplicatesRemoved} dup / -${omniManifest.dedupStats.heldOutContaminatedRemoved} leak`
+                  : omniManifest
+                    ? `${omniManifest.totalRecords.toLocaleString()} records`
+                    : omniFetching.lastMessage}
               </div>
             </div>
 
             <div className="rounded border border-blue-200 bg-blue-50/50 p-3">
-              <div className="font-mono text-[10px] uppercase tracking-wider text-blue-700">.x8D File on Disk</div>
+              <div className="font-mono text-[10px] uppercase tracking-wider text-blue-700">.x8D v2 File on Disk</div>
               <div className="mt-1 font-mono text-sm font-bold text-blue-900 tabular-nums" data-testid="omni-x8d-bytes">
                 {omniTraining && omniTraining.checkpointBytesOnDisk > 0
                   ? `${omniTraining.checkpointBytesOnDisk.toLocaleString()} B`
@@ -867,8 +897,8 @@ export const UnifiedArenaSection: React.FC = () => {
               </div>
               <div className="mt-0.5 font-mono text-[11px] text-blue-800 tabular-nums">
                 {omniTraining && omniTraining.achievedBpw > 0
-                  ? `${omniTraining.achievedBpw.toFixed(4)} bpw vs ${(omniTraining.fp16EquivalentBytes / 1024 / 1024).toFixed(2)} MB FP16`
-                  : '730,368 eff. weights'}
+                  ? `${omniTraining.achievedBpw.toFixed(4)} bpw eff · ${omniTraining.achievedDofBpb.toFixed(2)} b/DOF`
+                  : '5.00M eff · 24,320 DOFs'}
               </div>
             </div>
 
@@ -880,10 +910,51 @@ export const UnifiedArenaSection: React.FC = () => {
                   : 'E0:25% E1:25% E2:25% E3:25%'}
               </div>
               <div className="mt-0.5 font-mono text-[11px] text-slate-600">
-                System-1 + Reasoning MoE
+                {(omniTraining?.effectiveWeights ?? 4_999_168).toLocaleString()} eff ({(omniTraining?.trainableDofs ?? 24_320).toLocaleString()} DOFs)
               </div>
             </div>
           </div>
+
+          {omniContainer && omniContainer.entries.length > 0 && (
+            <details className="rounded-md border border-slate-200 bg-slate-50 px-4 py-2.5 text-xs" data-testid="omni-container-directory">
+              <summary className="cursor-pointer font-mono text-[11px] font-semibold text-slate-800 flex flex-wrap items-center justify-between gap-2">
+                <span>
+                  .x8D v{omniContainer.version} Named-Tensor Directory ({omniContainer.tensorCount} spans · {omniContainer.fileSizeBytes.toLocaleString()} B · CRC32 verified · Zero X8DGGUF1 magic)
+                </span>
+                <span className="text-blue-700 font-normal">Inspect seek spans &amp; codecs</span>
+              </summary>
+              <div className="mt-3 overflow-x-auto border border-slate-200 rounded bg-white">
+                <table className="w-full text-left border-collapse font-mono text-[11px]">
+                  <thead>
+                    <tr className="border-b border-slate-200 bg-slate-50 text-[10px] uppercase tracking-wider text-slate-500">
+                      <th className="py-1.5 px-2.5">Tensor</th>
+                      <th className="py-1.5 px-2.5">Codec</th>
+                      <th className="py-1.5 px-2.5 text-right">Shape (K)</th>
+                      <th className="py-1.5 px-2.5 text-right">Seek Offset + Size</th>
+                      <th className="py-1.5 px-2.5 text-right">CRC32</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {omniContainer.entries.map((entry) => (
+                      <tr key={entry.name}>
+                        <td className="py-1.5 px-2.5 font-semibold text-slate-900">{entry.name}</td>
+                        <td className="py-1.5 px-2.5 text-blue-800">{formatCodecLabel(entry.codecId)}</td>
+                        <td className="py-1.5 px-2.5 text-right text-slate-700 tabular-nums">
+                          {entry.rows}×{entry.cols} (k={entry.kTerms})
+                        </td>
+                        <td className="py-1.5 px-2.5 text-right text-slate-700 tabular-nums">
+                          @{entry.byteOffset} · {entry.byteLength.toLocaleString()} B
+                        </td>
+                        <td className="py-1.5 px-2.5 text-right text-emerald-700 tabular-nums">
+                          0x{entry.crc32.toString(16).padStart(8, '0').toUpperCase()}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </details>
+          )}
 
           {/* Per-Dataset Table */}
           {omniManifest ? (
@@ -1019,10 +1090,13 @@ export const UnifiedArenaSection: React.FC = () => {
                   <span>
                     Disk File: <strong className="text-slate-900">{omniInferResult.diskFileSizeBytes.toLocaleString()} B</strong> ·{' '}
                     <strong className="text-blue-800">{omniInferResult.diskSeeksPerformed} f.readSync seeks</strong> (
-                    {omniInferResult.diskBytesSeekRead.toLocaleString()} B read)
+                    {omniInferResult.diskBytesSeekRead.toLocaleString()} B read) ·{' '}
+                    <strong className="text-emerald-700">{omniInferResult.crcVerifiedCount} CRC32 verified</strong>
                   </span>
                   <span>
-                    Active Experts: <strong className="text-emerald-700">[E{omniInferResult.activeExpertsUsed.join(', E')}]</strong> ·{' '}
+                    S1 Iter-1 Exits: <strong className="text-emerald-700">{omniInferResult.system1EarlyExits}</strong> ·{' '}
+                    S2 Refinements: <strong className="text-blue-700">{omniInferResult.system2Refinements}</strong> ·{' '}
+                    Experts: <strong className="text-slate-900">[E{omniInferResult.activeExpertsUsed.join(', E')}]</strong> ·{' '}
                     {omniInferResult.latencyMs} ms
                   </span>
                 </div>
@@ -1040,12 +1114,20 @@ export const UnifiedArenaSection: React.FC = () => {
           <div className="rounded border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-[11px] text-slate-700 leading-relaxed">
             <strong className="font-semibold text-slate-900">Honest Compute &amp; Scale Disclosure: </strong>
             This server runs on a 4-vCPU CPU-only sandbox (no GPU), training the real{' '}
-            <span className="font-mono text-slate-800">730,368</span>-weight unified model (~400–800 B/s single-threaded JS) on the{' '}
-            <span className="font-mono text-slate-800">1.44 MB</span> multi-modal HuggingFace subset currently downloaded locally to disk
-            (including real binary GR00T <span className="font-mono">.parquet</span> trajectories). Scaling to consume multi-terabyte
-            upstream video/trajectory archives requires multi-GPU/TPU distributed compute; this workbench verifies real end-to-end
-            training, byte perplexity convergence, and <span className="font-mono">8.9 KB</span> direct{' '}
-            <span className="font-mono">fs.readSync</span> disk execution with zero mocked metrics.
+            <span className="font-mono text-slate-800">
+              {(omniTraining?.effectiveWeights ?? 4_999_168).toLocaleString()}
+            </span>{' '}
+            effective-weight (<span className="font-mono text-slate-800">{(omniTraining?.trainableDofs ?? 24_320).toLocaleString()}</span> independent DOF)
+            256-state Uniform-Corruption Byte-Diffusion + NCM System-1/System-2 model on the{' '}
+            <span className="font-mono text-slate-800">
+              {omniManifest ? `${((omniManifest.totalTrainBytes + omniManifest.totalHeldOutBytes) / 1024 / 1024).toFixed(2)} MB` : '1.44 MB'}
+            </span>{' '}
+            decontaminated multi-modal HuggingFace disk corpus (including real binary GR00T{' '}
+            <span className="font-mono">.parquet</span> trajectories). Scaling to multi-terabyte upstream archives requires
+            distributed GPUs/TPUs; this workbench measures both{' '}
+            <span className="font-mono text-slate-800">bpw vs. nominal effective weights</span> and{' '}
+            <span className="font-mono text-slate-800">bits/DOF</span> directly from the checksummed{' '}
+            <span className="font-mono">.x8D v2</span> binary file on disk with zero mocked metrics.
           </div>
         </div>
       </div>

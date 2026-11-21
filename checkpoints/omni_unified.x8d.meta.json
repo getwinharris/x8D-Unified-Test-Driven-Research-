@@ -1,12 +1,12 @@
 {
   "status": "completed",
-  "step": 320,
-  "targetSteps": 320,
-  "epochsApprox": 0.006,
-  "bytesProcessed": 7680,
-  "throughputBytesPerSec": 516,
-  "elapsedMs": 14871,
-  "currentTrainLoss": 3.1209,
+  "step": 280,
+  "targetSteps": 280,
+  "epochsApprox": 0.004,
+  "bytesProcessed": 4480,
+  "throughputBytesPerSec": 195,
+  "elapsedMs": 22965,
+  "currentTrainLoss": 3.3501,
   "initialTrainLoss": 5.5452,
   "lossHistory": [
     {
@@ -15,69 +15,71 @@
       "meanHeldOutPpl": 256
     },
     {
-      "step": 80,
-      "trainLoss": 3.5292,
-      "meanHeldOutPpl": 29.6
+      "step": 70,
+      "trainLoss": 3.7065,
+      "meanHeldOutPpl": 40.76
     },
     {
-      "step": 160,
-      "trainLoss": 3.0528,
-      "meanHeldOutPpl": 25.98
+      "step": 140,
+      "trainLoss": 3.6548,
+      "meanHeldOutPpl": 39.31
     },
     {
-      "step": 240,
-      "trainLoss": 3.5085,
-      "meanHeldOutPpl": 26.63
+      "step": 210,
+      "trainLoss": 3.3177,
+      "meanHeldOutPpl": 33.44
     },
     {
-      "step": 320,
-      "trainLoss": 3.1209,
-      "meanHeldOutPpl": 25.53
+      "step": 280,
+      "trainLoss": 3.3501,
+      "meanHeldOutPpl": 34.65
     }
   ],
   "perDomainHeldOutPpl": {
     "groot_sim": {
       "initPpl": 256,
-      "currentPpl": 15.12,
-      "top1AccPct": 28.3
+      "currentPpl": 29.63,
+      "top1AccPct": 14.3
     },
     "lerobot_control": {
       "initPpl": 256,
-      "currentPpl": 20.22,
-      "top1AccPct": 26.7
+      "currentPpl": 31.32,
+      "top1AccPct": 15
     },
     "tinystories_prose": {
       "initPpl": 256,
-      "currentPpl": 25.99,
-      "top1AccPct": 16.7
+      "currentPpl": 33,
+      "top1AccPct": 10.7
     },
     "gsm8k_math": {
       "initPpl": 256,
-      "currentPpl": 32.11,
-      "top1AccPct": 17.2
+      "currentPpl": 36.09,
+      "top1AccPct": 12.9
     },
     "humaneval_code": {
       "initPpl": 256,
-      "currentPpl": 46.43,
-      "top1AccPct": 11.7
+      "currentPpl": 60.95,
+      "top1AccPct": 3.6
     },
     "sudoku_extreme": {
       "initPpl": 256,
-      "currentPpl": 13.32,
-      "top1AccPct": 37.2
+      "currentPpl": 16.93,
+      "top1AccPct": 40
     }
   },
   "expertUsagePct": [
-    33,
-    38,
-    17,
-    13
+    31,
+    25,
+    19,
+    25
   ],
-  "effectiveWeights": 730368,
-  "trainableDofs": 16384,
-  "fp16EquivalentBytes": 1460736,
+  "effectiveWeights": 4999424,
+  "trainableDofs": 24320,
+  "fp16EquivalentBytes": 9998848,
   "checkpointPath": "omni_unified.x8d",
-  "checkpointBytesOnDisk": 8888,
-  "achievedBpw": 0.0974,
+  "checkpointBytesOnDisk": 6429,
+  "achievedBpw": 0.0103,
+  "achievedDofBpb": 2.115,
+  "diffusionObjective": "256-State Uniform Corruption + NCM S1/S2 Denoising",
   "lastError": null
 }

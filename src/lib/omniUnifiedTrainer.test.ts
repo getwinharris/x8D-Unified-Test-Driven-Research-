@@ -79,21 +79,23 @@ test('OmniUnifiedTrainer trains natively on raw 0..255 bytes, saves magic-free .
 
     assert.equal(metrics.status, 'completed');
     assert.equal(metrics.step, 40);
-    assert.ok(metrics.currentTrainLoss < metrics.initialTrainLoss, 'Expected loss to decrease during compact STE training');
-    assert.ok(fs.existsSync(ckptPath), 'Expected .x8D checkpoint file on disk');
+    assert.ok(metrics.currentTrainLoss < metrics.initialTrainLoss, 'Expected loss to decrease during compact STE diffusion training');
+    assert.ok(fs.existsSync(ckptPath), 'Expected .x8D v2 checkpoint file on disk');
     assert.ok(fs.existsSync(`${ckptPath}.meta.json`), 'Expected .x8D metadata sidecar on disk');
-    assert.ok(metrics.checkpointBytesOnDisk > 4000 && metrics.checkpointBytesOnDisk < 16000);
-    assert.ok(metrics.achievedBpw < 0.2, `Expected ultra-low bpw < 0.2, got ${metrics.achievedBpw}`);
+    assert.ok(metrics.checkpointBytesOnDisk > 2000 && metrics.checkpointBytesOnDisk < 14000, `Unexpected size ${metrics.checkpointBytesOnDisk}`);
+    assert.ok(metrics.achievedBpw < 0.02, `Expected ultra-low effective bpw < 0.02, got ${metrics.achievedBpw}`);
 
     // Confirm cold-start reloading from saved .x8D restores step & parameters
     const resumed = new OmniUnifiedTrainer({ seed: 99, dataDir: dir, checkpointPath: ckptPath });
     assert.equal(resumed.metrics.step, 40);
     assert.equal(resumed.metrics.checkpointBytesOnDisk, metrics.checkpointBytesOnDisk);
 
-    // Strictly direct f.seek/f.read inference with zero mmap
+    // Strictly direct f.seek/f.read inference with zero mmap & verified CRC32
     const infer = inferFromDiskX8dOnly('GR00T|env=', 24, ckptPath);
     assert.equal(infer.diskFileSizeBytes, metrics.checkpointBytesOnDisk);
     assert.ok(infer.diskSeeksPerformed >= 7, `Expected >= 7 f.seek/read operations, got ${infer.diskSeeksPerformed}`);
+    assert.ok(infer.crcVerifiedCount >= 5, `Expected >= 5 CRC32-verified tensor spans, got ${infer.crcVerifiedCount}`);
+    assert.equal(infer.system1EarlyExits + infer.system2Refinements, 24);
     assert.ok(infer.diskBytesSeekRead > 0 && infer.diskBytesSeekRead <= metrics.checkpointBytesOnDisk);
     assert.equal(infer.outputQuantaSample.length, 10);
     assert.ok(infer.activeExpertsUsed.length >= 1);

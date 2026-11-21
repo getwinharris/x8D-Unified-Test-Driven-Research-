@@ -17,11 +17,11 @@ export interface RepoIssueRecord {
 }
 
 export const REPO_METADATA = {
-  repo: 'bapXai/x8D-Omni-Diffusion',
+  repo: 'bapXai/x8D-Omni-Diffusion + x8Dsub-byte',
   canonicalName: 'x8D Omni Diffusion Language Model (x8D Omni DLM)',
   totalFiles: 138,
-  totalIssues: 73,
-  openIssues: 40,
+  totalIssues: 78,
+  openIssues: 44,
   totalPRs: 1,
   openPRs: 1,
   closedPRs: 0,
@@ -97,18 +97,44 @@ export const ALIGNMENT_AUDIT_MATRIX: AlignmentAuditRow[] = [
     status: 'fixed-this-turn',
   },
   {
-    dimension: '6. Direct f.seek / f.read Serving (No mmap)',
+    dimension: '6. Unified .x8D v2 Codec ABI (x8Dsub-byte #1–#4) & Direct f.seek / f.read Serving',
     repoIssuesSaying:
-      '#45, #70, #52: Remove magic X8DGGUF1 headers (#52) and move away from OS page-fault mmap overhead toward explicit f.seek/f.read tile streaming under <1 GB RAM.',
+      'x8Dsub-byte #1–#4 & Omni #75/#45/#52: Pin one named-tensor seekable .x8D container (`xIn`/`xCompress`/`xOut`/`read_tensor`), remove X8DGGUF1 magic (#52), keep diffusion/S1/S2 strictly in Omni.',
     userSayingInThread:
-      'We do not need mmap. Read active weight spans directly from the compressed .x8D model via f.seek/f.read and divide / 0.001 inside phone or small CPU RAM (<1 GB for 1T scale).',
+      'x8Dsub-byte is the Safetensors-like storage framework; x8D-Omni-Diffusion is the model. Read active named spans via f.seek/f.read (<1 GB RAM, zero mmap).',
     currentWorkbenchDoing:
-      'Simulator defaults to Raw .x8D Direct (f.seek/read, no mmap) showing <1 GB disk and <1 GB working RAM at 1T scale; real C/Rust/Python streaming kernel still needs end-to-end training & export.',
+      'Implemented unified magic-free .x8D v2 container with 48B named-tensor directory, multi-codec spans, CRC32 verification, fixed 0.000..0.255 quanta roundtrip, and explicit xAt=65,536 window spec.',
     status: 'fixed-this-turn',
   },
 ];
 
 export const REPO_ISSUES_AND_PRS: RepoIssueRecord[] = [
+  {
+    number: 75,
+    kind: 'ISSUE',
+    state: 'OPEN',
+    category: 'sub1bit-0001',
+    title: 'feat(P0): consume x8Dsub-byte .x8D codec; keep S1/S2, NCM, diffusion and model execution in Omni',
+    takeaway:
+      'Establishes Nov 18–21 repo separation: x8Dsub-byte owns seekable named-tensor .x8D storage & codecs; Omni owns unified S1/S2 NCM diffusion model; workbench informs gates.',
+    impactOnUnifiedModel:
+      'Eliminates 3 incompatible container writers and stops conflating independent DOFs (24.3k) with effective weights (5.00M).',
+    proposedSolution:
+      'Consume unified `.x8D v2` named-tensor container (`write_x8d`/`open_x8d`/`read_tensor` + CRC32) with real 256-state diffusion training.',
+  },
+  {
+    number: 1,
+    kind: 'ISSUE',
+    state: 'OPEN',
+    category: 'sub1bit-0001',
+    title: 'x8Dsub-byte #1–#4: native .x8D representation/codec, tensor index, xIn/xOut/xCompress ABI & integrity gates',
+    takeaway:
+      'Replaces X8DGGUF1 and flat `save_file` with versioned multi-tensor random access (`0..255`, NUL, Tamil UTF-8, PNG headers) without model execution inside framework.',
+    impactOnUnifiedModel:
+      'Provides Safetensors-equivalent named-tensor random access and verifies real stored file size vs declared denominators.',
+    proposedSolution:
+      'Adopt 48B named-tensor tail directory with per-span CRC32, fixed inverse `/ 0.001` persistence, and conformance vectors across all 256 byte values.',
+  },
   {
     number: 74,
     kind: 'PR',
@@ -244,13 +270,13 @@ export const REPO_ISSUES_AND_PRS: RepoIssueRecord[] = [
     kind: 'ISSUE',
     state: 'OPEN',
     category: 'ncm-reasoning',
-    title: 'research/feat: NCM-inspired coarse-to-fine adaptive byte diffusion scheduling',
+    title: 'research/feat: NCM learned multiscale hierarchy for Omni diffusion — no fixed 8×8 (updated Nov 21)',
     takeaway:
-      'Adapts Next-Concept Modeling (arXiv:2610.14162) from Prompt to Output; notes fixed 8x8 scheduling is only a control baseline, not mandatory.',
+      'Explicitly deprecates fixed 8×8 / 64-byte blocks as an older prototype artifact; studies NCM multiscale hierarchy, level-wise parallelism, and adaptive refinement.',
     impactOnUnifiedModel:
-      'Drives Prompt-to-Output coarse pass at Iter 1 (System 1 exit) and selective System-2 refinement.',
+      'Removes hardcoded /64 assumptions from workspace/compute math while preserving 0..255 external byte I/O and S1/S2 gating.',
     proposedSolution:
-      'Run matched-FLOP A/B benchmarks comparing adaptive entropy chunks vs. learned NCM concepts vs. fixed 8x8 baseline.',
+      'Benchmark learned multiscale concept spans vs. adaptive entropy chunks vs. uniform diffusion baseline on equal compute.',
   },
   {
     number: 63,

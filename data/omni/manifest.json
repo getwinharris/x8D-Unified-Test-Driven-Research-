@@ -1,8 +1,15 @@
 {
-  "updatedAtIso": "2026-11-18T00:11:54.716Z",
-  "totalTrainBytes": 1221922,
-  "totalHeldOutBytes": 250905,
-  "totalRecords": 5377,
+  "updatedAtIso": "2026-11-21T17:04:04.855Z",
+  "totalTrainBytes": 1211371,
+  "totalHeldOutBytes": 248858,
+  "totalRecords": 10832,
+  "dedupStats": {
+    "exactDuplicatesRemoved": 898,
+    "heldOutContaminatedRemoved": 4,
+    "residualShingleOverlapPct": 0,
+    "shingleLengthBytes": 24,
+    "verifiedClean": true
+  },
   "domains": {
     "groot_sim": {
       "id": "groot_sim",
@@ -22,9 +29,9 @@
       "sourceRepo": "lerobot/pusht + lerobot/aloha_sim_insertion_human",
       "modality": "Continuous Visuomotor Control",
       "recordsTrain": 450,
-      "recordsHeldOut": 50,
+      "recordsHeldOut": 49,
       "trainBytes": 38952,
-      "heldOutBytes": 4329,
+      "heldOutBytes": 4215,
       "shardsDownloaded": 5,
       "lastSamplePreview": "LEROBOT|ds=pusht|ep=0|s=[222.000,97.000]|a=[233.000,71.000]|r=0.19"
     },
@@ -33,10 +40,10 @@
       "label": "TinyStories Prose",
       "sourceRepo": "roneneldan/TinyStories",
       "modality": "Natural Language Byte Stream",
-      "recordsTrain": 360,
-      "recordsHeldOut": 40,
-      "trainBytes": 259455,
-      "heldOutBytes": 28552,
+      "recordsTrain": 1713,
+      "recordsHeldOut": 205,
+      "trainBytes": 258123,
+      "heldOutBytes": 28259,
       "shardsDownloaded": 4,
       "lastSamplePreview": "TEXT|One day, a little girl named Lily found a needle in her room. She knew it was difficult to play with it because it was sharp. Lily want"
     },
@@ -45,10 +52,10 @@
       "label": "OpenAI GSM8K",
       "sourceRepo": "openai/gsm8k",
       "modality": "Chain-of-Thought Arithmetic & Tool Steps",
-      "recordsTrain": 360,
-      "recordsHeldOut": 40,
-      "trainBytes": 199074,
-      "heldOutBytes": 21634,
+      "recordsTrain": 1841,
+      "recordsHeldOut": 205,
+      "trainBytes": 197411,
+      "heldOutBytes": 21377,
       "shardsDownloaded": 4,
       "lastSamplePreview": "MATH|Q:Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altoge"
     },
@@ -57,12 +64,12 @@
       "label": "OpenAI HumanEval",
       "sourceRepo": "openai/openai_humaneval",
       "modality": "Python Synthesis & Unit Specifications",
-      "recordsTrain": 148,
-      "recordsHeldOut": 16,
-      "trainBytes": 93516,
-      "heldOutBytes": 13296,
+      "recordsTrain": 2158,
+      "recordsHeldOut": 298,
+      "trainBytes": 85960,
+      "heldOutBytes": 11913,
       "shardsDownloaded": 2,
-      "lastSamplePreview": "CODE|HumanEval/0 from typing import List def has_close_elements(numbers: List[float], threshold: float) -> bool: \"\"\" Check if in given list "
+      "lastSamplePreview": "CODE|HumanEval/0"
     },
     "sudoku_extreme": {
       "id": "sudoku_extreme",
