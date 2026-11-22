@@ -76,7 +76,7 @@ export const ResearchAdvisorPanel: React.FC<ResearchAdvisorPanelProps> = ({ conf
     <section id="research-advisor" className="mx-auto max-w-[1360px] px-6 py-12">
       <div className="max-w-3xl">
         <div className="text-xs font-mono uppercase tracking-wider text-slate-500">
-          05. Engineering Advisor (Unified x8D Architecture)
+          06. Engineering Advisor (Unified x8D Architecture)
         </div>
         <h2 className="mt-1.5 text-2xl font-bold tracking-tight text-slate-900">
           Interactive High-Thinking Architecture Analysis

@@ -8,7 +8,28 @@ import { runNeedle3RealBenchmark } from './src/lib/needle3BenchmarkEngine';
 import { NEEDLE3_TENSOR_SPECS, Needle3BenchmarkReport, Needle3TensorId } from './src/lib/needle3Types';
 import { fetchAllOmniDatasets, readOmniManifest } from './src/lib/omniDatasetIngestor';
 import { OmniUnifiedTrainer, getDefaultCheckpointPath, inferFromDiskX8dOnly } from './src/lib/omniUnifiedTrainer';
-import { inspectX8dV2Directory } from './src/lib/x8dContainerFormat';
+import {
+  X8dCodecId,
+  X8dDtypeId,
+  computeCrc32,
+  inspectX8dV2Directory,
+  readNamedTensorWithFd,
+  writeX8dV2Container,
+  x8dArithCompressBytes,
+  x8dArithDecompressBytes,
+} from './src/lib/x8dContainerFormat';
+import {
+  getDefaultResearchArtifactDir,
+  readCachedX8dResearchReport,
+  runCompleteX8dResearchSuite,
+} from './src/lib/x8dResearchSuiteRunner';
+import {
+  buildValidSamplePng,
+  buildValidSampleWav,
+  packDeltaRleMilli,
+  unpackDeltaRleMilli,
+} from './src/lib/reversibleCodecExperiment';
+import crypto from 'crypto';
 
 dotenv.config();
 
@@ -241,6 +262,128 @@ async function startServer() {
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed reading .x8D checkpoint from disk';
       res.status(400).json({ error: msg });
+    }
+  });
+
+  // x8D Research Brief Experiments Suite (Sections 3-8)
+  app.get('/api/research/suite', (_req, res) => {
+    try {
+      const cached = readCachedX8dResearchReport() ?? runCompleteX8dResearchSuite();
+      res.json(cached);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed loading research suite report';
+      res.status(500).json({ error: msg });
+    }
+  });
+
+  app.post('/api/research/suite/run', (_req, res) => {
+    try {
+      const fresh = runCompleteX8dResearchSuite();
+      res.json(fresh);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed running research suite';
+      res.status(500).json({ error: msg });
+    }
+  });
+
+  app.post('/api/research/codec-test', (req, res) => {
+    try {
+      const mode = typeof req.body?.mode === 'string' ? req.body.mode : 'text';
+      const rawText = typeof req.body?.text === 'string' ? req.body.text : 'வணக்கம் Hello 0.000..0.255';
+      let bytes: Uint8Array;
+      if (mode === 'vocab256') {
+        bytes = new Uint8Array(256);
+        for (let i = 0; i < 256; i++) bytes[i] = i;
+      } else if (mode === 'png') {
+        bytes = buildValidSamplePng(32, 32);
+      } else if (mode === 'wav') {
+        bytes = buildValidSampleWav(8000, 1600);
+      } else if (mode === 'random') {
+        bytes = new Uint8Array(crypto.randomBytes(2048));
+      } else {
+        bytes = new TextEncoder().encode(rawText);
+      }
+
+      const artifactDir = getDefaultResearchArtifactDir();
+      fs.mkdirSync(artifactDir, { recursive: true });
+      const filePath = path.join(artifactDir, 'interactive_codec_test.x8d');
+      const t0 = performance.now();
+      const deflateBuf = x8dArithCompressBytes(bytes);
+      const rleBuf = packDeltaRleMilli(bytes);
+
+      let codecUsed: 'deflate-frame' | 'delta-rle' | 'raw-verbatim' = 'raw-verbatim';
+      let codecId = X8dCodecId.RAW_QUANTA_U8;
+      let payload = bytes;
+      if (deflateBuf.length < payload.length && deflateBuf.length <= rleBuf.length) {
+        codecUsed = 'deflate-frame';
+        codecId = X8dCodecId.KRON_ARITH_Q3;
+        payload = deflateBuf;
+      } else if (rleBuf.length < payload.length) {
+        codecUsed = 'delta-rle';
+        codecId = X8dCodecId.KRON_Q2;
+        payload = rleBuf;
+      }
+
+      const physicalX8dBytes = writeX8dV2Container(filePath, 0, bytes.length, [
+        {
+          name: 'live.payload',
+          codecId,
+          dtypeId: X8dDtypeId.U8_QUANTA,
+          rows: 1,
+          cols: Math.min(65535, bytes.length),
+          p1: codecId === X8dCodecId.KRON_Q2 ? 5 : 0,
+          q1: 0,
+          kTerms: 1,
+          hasBias: false,
+          payload,
+        },
+      ]);
+      const encodeMs = performance.now() - t0;
+
+      const t1 = performance.now();
+      const dir = inspectX8dV2Directory(filePath);
+      const entry = dir.entries[0];
+      const fd = fs.openSync(filePath, 'r');
+      let span: Uint8Array;
+      try {
+        span = readNamedTensorWithFd(fd, entry);
+      } finally {
+        fs.closeSync(fd);
+      }
+      const decoded =
+        entry.codecId === X8dCodecId.KRON_ARITH_Q3
+          ? x8dArithDecompressBytes(span)
+          : entry.codecId === X8dCodecId.KRON_Q2 && entry.p1 === 5
+            ? unpackDeltaRleMilli(span)
+            : span;
+      const decodeMs = performance.now() - t1;
+
+      const shaOriginal = crypto.createHash('sha256').update(bytes).digest('hex');
+      const shaDecoded = crypto.createHash('sha256').update(decoded).digest('hex');
+      res.json({
+        mode,
+        rawBytes: bytes.length,
+        physicalX8dBytes,
+        payloadSpanBytes: span.length,
+        codecUsed,
+        compressionRatio: Number((bytes.length / Math.max(1, physicalX8dBytes)).toFixed(3)),
+        storedBitsPerByte: Number(((physicalX8dBytes * 8) / Math.max(1, bytes.length)).toFixed(4)),
+        sha256Original: shaOriginal,
+        sha256Decoded: shaDecoded,
+        sha256ExactMatch: shaOriginal === shaDecoded,
+        crc32Hex: `0x${computeCrc32(span).toString(16).padStart(8, '0')}`,
+        encodeMs: Number(encodeMs.toFixed(3)),
+        decodeMs: Number(decodeMs.toFixed(3)),
+        decodedPreview:
+          mode === 'png' || mode === 'wav' || mode === 'random' || mode === 'vocab256'
+            ? Array.from(decoded.subarray(0, 16))
+                .map((b) => b.toString(16).padStart(2, '0'))
+                .join(' ')
+            : new TextDecoder().decode(decoded),
+      });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Interactive codec verification failed';
+      res.status(500).json({ error: msg });
     }
   });
 

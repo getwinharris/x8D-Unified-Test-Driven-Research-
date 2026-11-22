@@ -17,12 +17,6 @@ export const TopBar: React.FC<TopBarProps> = ({ onFocusAdvisor }) => {
 
         <nav aria-label="Primary navigation" className="hidden md:flex items-center gap-6 text-sm font-medium text-slate-600">
           <a
-            href="#summary"
-            className="hover:text-slate-900 hover:underline underline-offset-4 transition-colors whitespace-nowrap shrink-0"
-          >
-            Unified Model
-          </a>
-          <a
             href="#system-dual"
             className="hover:text-slate-900 hover:underline underline-offset-4 transition-colors whitespace-nowrap shrink-0"
           >
@@ -39,6 +33,12 @@ export const TopBar: React.FC<TopBarProps> = ({ onFocusAdvisor }) => {
             className="hover:text-slate-900 hover:underline underline-offset-4 transition-colors whitespace-nowrap shrink-0"
           >
             0.008 bpw .x8D
+          </a>
+          <a
+            href="#research-brief-lab"
+            className="hover:text-slate-900 hover:underline underline-offset-4 transition-colors whitespace-nowrap shrink-0"
+          >
+            Empirical Lab
           </a>
           <a
             href="#repo-audit"

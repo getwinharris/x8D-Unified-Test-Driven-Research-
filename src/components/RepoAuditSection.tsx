@@ -40,7 +40,7 @@ export const RepoAuditSection: React.FC = () => {
     <section id="repo-audit" className="mx-auto max-w-[1360px] px-6 py-12 border-b border-slate-200">
       <div className="max-w-3xl">
         <div className="text-xs font-mono uppercase tracking-wider text-slate-500">
-          04. Repo Issues vs. Thread Requirements Audit (bapXai/x8D-Omni-Diffusion)
+          05. Repo Issues vs. Thread Requirements Audit (bapXai/x8D-Omni-Diffusion)
         </div>
         <h2 className="mt-1.5 text-2xl font-bold tracking-tight text-slate-900">
           What Your Repo Issues Say vs. What You Asked For vs. What This Workbench Does

@@ -13,7 +13,8 @@
     "bench:subbit": "tsx scripts/benchmark_subbit_eval.ts",
     "bench:needle3": "tsx scripts/benchmark_needle3.ts",
     "fetch:omni": "tsx scripts/fetch_omni_datasets.ts",
-    "train:omni": "tsx scripts/train_omni_x8d.ts"
+    "train:omni": "tsx scripts/train_omni_x8d.ts",
+    "research:suite": "tsx scripts/run_x8d_research_suite.ts"
   },
   "dependencies": {
     "@google/genai": "^3.3.0",

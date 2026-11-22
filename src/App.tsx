@@ -9,6 +9,7 @@ import { ExecutiveSummarySection } from './components/ExecutiveSummarySection';
 import { SystemDualSection } from './components/SystemDualSection';
 import { UnifiedArenaSection } from './components/UnifiedArenaSection';
 import { SubBitFrontierSection } from './components/SubBitFrontierSection';
+import { ResearchBriefLabSection } from './components/ResearchBriefLabSection';
 import { RepoAuditSection } from './components/RepoAuditSection';
 import { ResearchAdvisorPanel } from './components/ResearchAdvisorPanel';
 import { FootprintSimulationInput } from './lib/architectureMath';
@@ -45,6 +46,7 @@ export default function App() {
         <SystemDualSection />
         <UnifiedArenaSection />
         <SubBitFrontierSection config={simConfig} onChange={setSimConfig} />
+        <ResearchBriefLabSection />
         <RepoAuditSection />
         <ResearchAdvisorPanel config={simConfig} inputRef={advisorInputRef} />
       </main>
