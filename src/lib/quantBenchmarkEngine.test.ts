@@ -42,4 +42,23 @@ test('Sub-bit benchmark measures real serialized Uint8Array Kronecker buffers wi
       report.scaleCheck512x1536.cosineSimilarity > broken57.cosineSimilarity * 6,
     `Expected 512x1536 K=1 2-bit cosine (${report.scaleCheck512x1536.cosineSimilarity}) >> broken #57 (${broken57.cosineSimilarity})`
   );
+
+  // Verify the 786,432-weight (12 x xAt=65,536) scale-compression + xAt partitioning experiments
+  assert.equal(report.xAtUnitWeights, 65_536);
+  assert.equal(report.targetBudgetBytes786k, 786);
+  assert.equal(report.xAtExperiments786k.length, 5);
+
+  const monoBase = report.xAtExperiments786k.find((e) => e.experimentId === 'mono-k1-2b-colscale')!;
+  const monoGrp = report.xAtExperiments786k.find((e) => e.experimentId === 'mono-k1-2b-grouped')!;
+  const monoK2 = report.xAtExperiments786k.find((e) => e.experimentId === 'mono-k2-mixed-residual')!;
+  const xatIndep = report.xAtExperiments786k.find((e) => e.experimentId === 'xat-12-independent')!;
+  const xatShared = report.xAtExperiments786k.find((e) => e.experimentId === 'xat-12-shared-atlas')!;
+
+  assert.equal(monoBase.rawPayloadBytes, 1316);
+  assert.ok(monoGrp.withV2ContainerBytes <= 786, `Grouped scale K=1 must beat <=786 B even with .x8D v2 framing (${monoGrp.withV2ContainerBytes} B)`);
+  assert.ok(monoK2.rawPayloadBytes <= 786 && monoK2.measuredPayloadBpw <= 0.008, `K=2 mixed residual payload must fit <=786 B (${monoK2.rawPayloadBytes} B)`);
+  assert.ok(monoK2.cosineSimilarity > monoBase.cosineSimilarity + 0.08, `OLS-refitted K=2 mixed residual cosine (${monoK2.cosineSimilarity}) must exceed baseline (${monoBase.cosineSimilarity})`);
+  assert.ok(monoK2.rmse < monoBase.rmse, `OLS-refitted K=2 RMSE (${monoK2.rmse}) must beat baseline (${monoBase.rmse})`);
+  assert.ok(xatIndep.rawPayloadBytes > 2000 && !xatIndep.meets0008Target, 'Independent 12x xAt blocks repeat headers/factors and exceed 786 B');
+  assert.ok(xatShared.rawPayloadBytes <= 786 && xatShared.meets0008Target, `Shared-atlas 12x xAt must stay <=786 B (${xatShared.rawPayloadBytes} B)`);
 });

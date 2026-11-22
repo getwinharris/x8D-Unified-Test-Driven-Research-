@@ -487,6 +487,101 @@ export const SubBitFrontierSection: React.FC<SubBitFrontierSectionProps> = ({ co
         </div>
       </div>
 
+      {/* 786,432 = 12 x xAt (65,536) Scale-Compression, Residual Compensation & Shared-Atlas Experiment */}
+      <div className="mt-6 bg-white border border-slate-200 rounded-lg overflow-hidden" data-testid="xat-scale-ablation">
+        <div className="px-4 py-3 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <h3 className="text-xs font-mono font-semibold uppercase tracking-wider text-slate-700">
+              Attacking the 768 B Scale Tax: 512×1536 ({liveBench.xAtExperiments786k[0]?.totalWeights.toLocaleString()} = 12 × xAt{' '}
+              {liveBench.xAtUnitWeights.toLocaleString()}) Ablation
+            </h3>
+            <p className="text-[11px] text-slate-500 mt-0.5">
+              Compresses per-column scales (768 B → 57–73 B), adds K=2 1-bit residual + OLS sigma refit, and compares independent vs. shared-atlas{' '}
+              <span className="font-mono">xAt=65,536</span> weight blocks against the strict{' '}
+              <span className="font-mono">{liveBench.targetBudgetBytes786k} B</span> (0.0080 bpw) ceiling.
+            </p>
+          </div>
+          <span className="font-mono text-xs font-semibold text-blue-800">
+            Budget ≤ {liveBench.targetBudgetBytes786k} B (65.5 B / xAt block)
+          </span>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="border-b border-slate-200 bg-slate-50/60 text-[11px] font-mono uppercase tracking-wider text-slate-500">
+                <th className="py-2.5 px-4">Experiment (Uint8Array Roundtrip)</th>
+                <th className="py-2.5 px-3 text-right">Scales</th>
+                <th className="py-2.5 px-3 text-right">Factors</th>
+                <th className="py-2.5 px-3 text-right">Meta</th>
+                <th className="py-2.5 px-3 text-right">Payload B (BPW)</th>
+                <th className="py-2.5 px-3 text-right">With .x8D v2 (BPW)</th>
+                <th className="py-2.5 px-3 text-right">B / xAt</th>
+                <th className="py-2.5 px-3 text-right">Cosine</th>
+                <th className="py-2.5 px-3 text-right">RMSE</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-200 text-xs">
+              {liveBench.xAtExperiments786k.map((exp) => (
+                <tr
+                  key={exp.experimentId}
+                  className={exp.meets0008Target ? 'bg-blue-50/40 align-top' : 'bg-white align-top'}
+                >
+                  <td className="py-2.5 px-4">
+                    <div className="font-semibold text-slate-900">{exp.label}</div>
+                    <div className="font-mono text-[10px] text-slate-500 mt-0.5">{exp.strategy}</div>
+                  </td>
+                  <td className="py-2.5 px-3 font-mono tabular-nums text-right text-slate-700 whitespace-nowrap">
+                    {exp.scalePayloadBytes} B
+                  </td>
+                  <td className="py-2.5 px-3 font-mono tabular-nums text-right text-slate-700 whitespace-nowrap">
+                    {exp.factorPayloadBytes} B
+                  </td>
+                  <td className="py-2.5 px-3 font-mono tabular-nums text-right text-slate-700 whitespace-nowrap">
+                    {exp.metaHeaderBytes} B
+                  </td>
+                  <td
+                    className={`py-2.5 px-3 font-mono tabular-nums text-right font-semibold whitespace-nowrap ${
+                      exp.meets0008Target ? 'text-emerald-700' : 'text-amber-700'
+                    }`}
+                    data-testid={`xat-exp-bytes-${exp.experimentId}`}
+                  >
+                    {exp.rawPayloadBytes.toLocaleString()} B ({exp.measuredPayloadBpw.toFixed(5)})
+                  </td>
+                  <td className="py-2.5 px-3 font-mono tabular-nums text-right text-slate-700 whitespace-nowrap">
+                    {exp.withV2ContainerBytes.toLocaleString()} B ({exp.measuredContainerBpw.toFixed(5)})
+                  </td>
+                  <td className="py-2.5 px-3 font-mono tabular-nums text-right text-slate-800 whitespace-nowrap">
+                    {exp.perXAtBlockMarginalBytes} B
+                  </td>
+                  <td
+                    className="py-2.5 px-3 font-mono tabular-nums text-right font-semibold text-slate-900 whitespace-nowrap"
+                    data-testid={`xat-exp-cos-${exp.experimentId}`}
+                  >
+                    {exp.cosineSimilarity.toFixed(4)}
+                  </td>
+                  <td className="py-2.5 px-3 font-mono tabular-nums text-right text-slate-700 whitespace-nowrap">
+                    {exp.rmse.toFixed(5)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div className="px-4 py-3 bg-slate-50 border-t border-slate-200 text-[11px] text-slate-600 leading-relaxed space-y-1">
+          <div>
+            <strong className="font-semibold text-slate-900">Benchmark &amp; Unit Distinction Note: </strong>
+            The <span className="font-mono">bytePerplexity</span> and Snake scores in the synthetic quantization table above are proxy
+            reconstruction sensitivity checks, whereas the end-to-end held-out perplexity and disk checkpoint metrics in Section 02 run
+            real STE/diffusion forward &amp; backward passes on HuggingFace bytes. Note also that <span className="font-mono">xAt = 65,536</span> is
+            defined as context-window bytes in <span className="font-mono">x8dContainerFormat.ts</span> and reused here as a weight-block test unit:
+            isolated <span className="font-mono">xAt</span> blocks repeat headers (<span className="font-mono">2,460 B</span>), while cross-block sharing
+            (Exp 5) or monolithic scale-compressed K=2 residual with OLS sigma refit (Exp 3: <span className="font-mono">785 B</span>, cosine{' '}
+            <span className="font-mono">{liveBench.xAtExperiments786k.find((e) => e.experimentId === 'mono-k2-mixed-residual')?.cosineSimilarity.toFixed(4)}</span>) hits{' '}
+            <span className="font-mono">≤ 0.0080 bpw</span> payload.
+          </div>
+        </div>
+      </div>
+
       <Needle3BenchmarkPanel />
     </section>
   );
